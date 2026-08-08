@@ -33,6 +33,7 @@ const plexMono = IBM_Plex_Mono({
 export function generateMetadata(): Metadata {
   const { name } = branding();
   return {
+    metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://crm.mindtech.one"),
     title: {
       default: `${name} — atendimento e vendas por WhatsApp com agentes de IA`,
       template: `%s · ${name}`,
@@ -49,6 +50,14 @@ export function generateMetadata(): Metadata {
       "LGPD",
       "multi-tenant",
     ],
+    openGraph: {
+      type: "website",
+      locale: "pt_BR",
+      siteName: name,
+      title: `${name} — atendimento e vendas por WhatsApp com IA`,
+      description:
+        "Centralize o atendimento por WhatsApp num funil só, com agentes de IA que atendem, qualificam e vendem.",
+    },
     robots: { index: false, follow: false },
   };
 }
