@@ -120,7 +120,9 @@ const config: Config = {
       },
       fontFamily: {
         sans: [
-          "var(--font-atkinson)",
+          "Segoe UI Variable Text",
+          "Segoe UI Variable",
+          "var(--font-inter)",
           "ui-sans-serif",
           "system-ui",
           "-apple-system",
