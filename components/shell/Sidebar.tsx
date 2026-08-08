@@ -92,7 +92,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
                         className={cn(
                           "relative flex items-center gap-3 rounded-md px-3 py-1.5 text-sm transition-colors",
                           isActive
-                            ? "bg-accent text-accent-foreground"
+                            ? "bg-accent-soft text-accent font-medium"
                             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                           collapsed && "justify-center px-2",
                         )}
@@ -117,7 +117,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
                       className={cn(
                         "flex items-center gap-3 rounded-md px-3 py-1.5 text-sm transition-colors",
                         pathname === group.hub.href
-                          ? "bg-accent text-accent-foreground"
+                          ? "bg-accent-soft text-accent font-medium"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                         collapsed && "justify-center px-2",
                       )}
@@ -141,7 +141,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
             className={cn(
               "mb-1 flex items-center gap-3 rounded-md px-3 py-1.5 text-sm transition-colors",
               pathname.startsWith(rodape.href)
-                ? "bg-accent text-accent-foreground"
+                ? "bg-accent-soft text-accent font-medium"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
               collapsed && "justify-center px-2",
             )}
