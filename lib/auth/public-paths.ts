@@ -22,6 +22,9 @@ export const PUBLIC_PATHS: RegExp[] = [
   /^\/api\/mcp(\/.*)?$/,
   /^\/_next\//,
   /^\/favicon\.ico$/,
+  // Imagem OG (next/og) precisa ser buscável por crawlers de preview (WhatsApp/Slack),
+  // sem sessão. É público por natureza — é o card que aparece ao compartilhar o link.
+  /^\/opengraph-image(\/.*)?$/,
   /^\/team\/accept-invite\/.+$/,
   /^\/account-suspended$/,
 ];

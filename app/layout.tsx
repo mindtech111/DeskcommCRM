@@ -33,7 +33,9 @@ const plexMono = IBM_Plex_Mono({
 export function generateMetadata(): Metadata {
   const { name } = branding();
   return {
-    metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://crm.mindtech.one"),
+    // DOMAIN é runtime (env_file), não NEXT_PUBLIC_* (que é queimada no build da
+    // imagem genérica → viraria placeholder.invalid). Ver lib/branding.ts.
+    metadataBase: new URL(`https://${process.env.DOMAIN ?? "crm.mindtech.one"}`),
     title: {
       default: `${name} — atendimento e vendas por WhatsApp com agentes de IA`,
       template: `%s · ${name}`,
