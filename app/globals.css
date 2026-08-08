@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────────────────────
-   DeskcommCRM — Design System tokens (Sage palette · density Aerada)
-   Source of truth: /app/design/lib/tokens.ts (PALETTES.sage)
+   DeskcommCRM — Design System tokens (Mindtech coral accent · density Equilibrada)
+   Accent = marca Mindtech (coral #E8845E). Neutros/estados = greige base.
    Light + dark drawn separately (NOT inverted).
    ───────────────────────────────────────────────────────────────────────── */
 
@@ -24,18 +24,18 @@
   --color-border: #e7e3da;
   --color-border-strong: #d2cdbf;
 
-  /* Accent — Sage (11 stops) */
-  --color-accent-50:  #f3f6f1;
-  --color-accent-100: #e4ebe0;
-  --color-accent-200: #c8d6c1;
-  --color-accent-300: #a4ba9a;
-  --color-accent-400: #82a077;
-  --color-accent-500: #67885d;
-  --color-accent-600: #506d48;
-  --color-accent-700: #41573b;
-  --color-accent-800: #374731;
-  --color-accent-900: #2f3c2b;
-  --color-accent-950: #171f15;
+  /* Accent — Mindtech coral (11 stops). 400 = marca (#E8845E); 600 = ação (AA c/ branco) */
+  --color-accent-50:  #fdf4ef;
+  --color-accent-100: #fbe3d5;
+  --color-accent-200: #f5c4aa;
+  --color-accent-300: #eda078;
+  --color-accent-400: #e8845e;
+  --color-accent-500: #d9683d;
+  --color-accent-600: #bd4d2a;
+  --color-accent-700: #9e3f20;
+  --color-accent-800: #80341b;
+  --color-accent-900: #6a2c18;
+  --color-accent-950: #37140b;
   --color-accent: var(--color-accent-600);
   --color-accent-fg: #ffffff;
   --color-accent-soft: var(--color-accent-100);
@@ -99,11 +99,11 @@
   --shadow-lg: 0 12px 32px -6px rgba(20, 18, 14, 0.10), 0 4px 12px -2px rgba(20, 18, 14, 0.06);
   --shadow-xl: 0 24px 48px -12px rgba(20, 18, 14, 0.16), 0 8px 16px -4px rgba(20, 18, 14, 0.08);
 
-  /* Density — Aerada */
-  --density-row: 56px;
-  --density-gap: 24px;
-  --density-px: 20px;
-  --density-py: 16px;
+  /* Density — Equilibrada */
+  --density-row: 44px;
+  --density-gap: 16px;
+  --density-px: 16px;
+  --density-py: 10px;
 
   /* Motion */
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
@@ -159,21 +159,21 @@
   --color-border: #33312a;
   --color-border-strong: #444239;
 
-  /* Accent stays same hex stops; default shifts up for dark contrast */
-  --color-accent-50:  #f3f6f1;
-  --color-accent-100: #e4ebe0;
-  --color-accent-200: #c8d6c1;
-  --color-accent-300: #a4ba9a;
-  --color-accent-400: #82a077;
-  --color-accent-500: #67885d;
-  --color-accent-600: #506d48;
-  --color-accent-700: #41573b;
-  --color-accent-800: #374731;
-  --color-accent-900: #2f3c2b;
-  --color-accent-950: #171f15;
+  /* Accent — Mindtech coral (same stops); default shifts up for dark contrast */
+  --color-accent-50:  #fdf4ef;
+  --color-accent-100: #fbe3d5;
+  --color-accent-200: #f5c4aa;
+  --color-accent-300: #eda078;
+  --color-accent-400: #e8845e;
+  --color-accent-500: #d9683d;
+  --color-accent-600: #bd4d2a;
+  --color-accent-700: #9e3f20;
+  --color-accent-800: #80341b;
+  --color-accent-900: #6a2c18;
+  --color-accent-950: #37140b;
   --color-accent: var(--color-accent-400);
   --color-accent-fg: #161510;
-  --color-accent-soft: rgba(130, 160, 119, 0.16);
+  --color-accent-soft: rgba(232, 132, 94, 0.16);
   --color-accent-hover: var(--color-accent-300);
 
   /* Neutrals — greige (11 stops, dark) */
