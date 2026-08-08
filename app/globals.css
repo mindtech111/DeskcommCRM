@@ -246,8 +246,9 @@
   body {
     background-color: var(--color-bg);
     color: var(--color-text);
-    font-family: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system,
-      "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    /* Segoe UI Variable = fonte da Microsoft (só Windows); Inter = gêmeo aberto p/ o resto */
+    font-family: "Segoe UI Variable Text", "Segoe UI", var(--font-inter),
+      ui-sans-serif, system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

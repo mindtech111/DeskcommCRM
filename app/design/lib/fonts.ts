@@ -8,6 +8,7 @@ import {
   IBM_Plex_Sans,
   IBM_Plex_Mono,
   JetBrains_Mono,
+  Inter,
 } from "next/font/google";
 
 // Note: next/font requires module-level constants; we expose all 4 pair vars
@@ -71,6 +72,14 @@ export const jetbrains = JetBrains_Mono({
   variable: "--font-jetbrains",
 });
 
+// Gêmeo aberto da Segoe UI / system-UI. Fallback cross-platform quando a
+// "Segoe UI Variable" (proprietária, só Windows) não está disponível.
+export const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
+
 export const allFontVariables = [
   bricolage.variable,
   jakarta.variable,
@@ -81,4 +90,5 @@ export const allFontVariables = [
   plexSans.variable,
   plexMono.variable,
   jetbrains.variable,
+  inter.variable,
 ].join(" ");
