@@ -22,6 +22,21 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# ── Repositório da imagem: derivado do remote (fork-friendly) ────────────────
+# O kit é genérico. Em vez de fixar o autor original, descobrimos o dono pelo
+# remote 'origin' e montamos ghcr.io/<owner>/<repo> (lowercase — exigência do
+# GHCR). Override manual: exporte IMAGE_REPO=... ou APP_IMAGE=... completo.
+default_image_repo() {
+  local url slug
+  url="$(git config --get remote.origin.url 2>/dev/null)"
+  slug="$(printf '%s' "$url" | sed -E 's#(\.git)?/?$##; s#^.*[/:]([^/]+/[^/]+)$#\1#')"
+  case "$slug" in
+    */*) printf 'ghcr.io/%s' "$(printf '%s' "$slug" | tr '[:upper:]' '[:lower:]')" ;;
+    *)   printf 'ghcr.io/melgarafael/deskcommcrm' ;;   # fallback: upstream
+  esac
+}
+IMAGE_REPO="${IMAGE_REPO:-$(default_image_repo)}"
+
 # ── 0. Liga o agente da tela ANTES de qualquer decisão de versão ─────────────
 # Instalar o cron aqui, e não no fim, é o que faz o bootstrap ter fim: os
 # caminhos "já está na versão mais recente" e "essa versão é anterior à sua"
@@ -47,7 +62,7 @@ CURRENT_TAG="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
 # (Veio da `main`; a versão por tag cai exatamente na mesma armadilha, porque a
 # comparação de tags também fica satisfeita com a imagem velha no lugar.)
 image_desatualizada() {
-  local img="${APP_IMAGE:-ghcr.io/melgarafael/deskcommcrm:latest}" local_d remote_d
+  local img="${APP_IMAGE:-${IMAGE_REPO}:latest}" local_d remote_d
   local_d="$(docker image inspect "$img" --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' 2>/dev/null | sed 's/.*@//')"
   [ -z "$local_d" ] && return 0                 # nem baixada ainda → atualizar
   remote_d="$(docker buildx imagetools inspect "$img" 2>/dev/null | awk '/^Digest:/{print $2; exit}')"
@@ -155,7 +170,7 @@ step "Baixando a versão nova do app e reiniciando"
 # acima) e a imagem do container sejam sempre da mesma versão. Gravada no .env,
 # não só exportada: o compose lê a imagem de lá, e um `up -d` rodado à mão
 # depois voltaria pro ":latest" do install — desfazendo a atualização.
-export APP_IMAGE="ghcr.io/melgarafael/deskcommcrm:${TARGET_TAG#v}"
+export APP_IMAGE="${IMAGE_REPO}:${TARGET_TAG#v}"
 set_env_var .env APP_IMAGE "$APP_IMAGE"
 # Devolve a política padrão: um rollback anterior deixou "missing" no .env
 # (porque a imagem de volta é um ID local, que não se puxa do registro), e
