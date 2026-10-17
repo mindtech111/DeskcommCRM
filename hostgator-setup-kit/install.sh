@@ -1061,6 +1061,9 @@ umask 077
   envq TRAEFIK_ENTRYPOINT_HTTP "${TRAEFIK_ENTRYPOINT_HTTP:-web}"
   envq TRAEFIK_ENTRYPOINT "${TRAEFIK_ENTRYPOINT:-websecure}"
   envq TRAEFIK_CERTRESOLVER "${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+  # Prefixo dos routers/services/middlewares no Traefik. Duas instalações no
+  # mesmo Traefik precisam de prefixos diferentes (ver docker-compose.traefik.yml).
+  envq TRAEFIK_ROUTER "${TRAEFIK_ROUTER:-deskcomm}"
   envq NEXT_PUBLIC_SUPABASE_URL "$NEXT_PUBLIC_SUPABASE_URL"
   envq NEXT_PUBLIC_SUPABASE_ANON_KEY "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
   envq SUPABASE_SERVICE_ROLE_KEY "$SUPABASE_SERVICE_ROLE_KEY"

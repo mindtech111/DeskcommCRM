@@ -59,7 +59,13 @@ services:
       - internal
       - proxy
     labels:
-      traefik.enable: "true"
+      # Labels em LISTA (não mapa) de propósito: o Compose interpola variáveis
+      # nos VALORES, e cada item da lista é um valor. O prefixo dos routers,
+      # services e middlewares vem de TRAEFIK_ROUTER (default "deskcomm", que
+      # reproduz exatamente os nomes de antes). Duas instalações no mesmo
+      # Traefik PRECISAM de prefixos diferentes: com o mesmo nome e regras
+      # diferentes o Traefik trata o router como conflitante.
+      - "traefik.enable=true"
       # Este label diz ao Traefik em qual rede pegar o IP do contêiner. Com o
       # Traefik numa bridge própria, é a rede do PROXY — apontando para a
       # `internal` ele mira um IP que não alcança e a requisição pendura até dar
@@ -72,17 +78,17 @@ services:
       # continua sendo a rede `proxy` — só que lá ela é a bridge que o install.sh
       # cria para este projeto, porque um proxy em modo host não tem rede própria
       # (e alcança qualquer bridge pela stack do host).
-      traefik.docker.network: "${TRAEFIK_NETWORK:-traefik}"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
 
       # Rota principal — equivale ao `reverse_proxy app:3000` do Caddyfile.
-      traefik.http.routers.deskcomm.rule: "Host(`${DOMAIN}`)"
-      traefik.http.routers.deskcomm.entrypoints: "${TRAEFIK_ENTRYPOINT:-websecure}"
-      traefik.http.routers.deskcomm.tls.certresolver: "${TRAEFIK_CERTRESOLVER:-letsencrypt}"
-      traefik.http.routers.deskcomm.middlewares: "deskcomm-compress"
-      traefik.http.services.deskcomm.loadbalancer.server.port: "3000"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}.middlewares=${TRAEFIK_ROUTER:-deskcomm}-compress"
+      - "traefik.http.services.${TRAEFIK_ROUTER:-deskcomm}.loadbalancer.server.port=3000"
 
       # `encode gzip` do Caddyfile.
-      traefik.http.middlewares.deskcomm-compress.compress: "true"
+      - "traefik.http.middlewares.${TRAEFIK_ROUTER:-deskcomm}-compress.compress=true"
 
       # `respond @waha_global 403` do Caddyfile. O webhook GLOBAL do WAHA não
       # pode ser alcançável da internet: quem soubesse o endereço injetaria
@@ -96,22 +102,22 @@ services:
       # real tem. Toda requisição àquele caminho cai fora da lista e recebe 403,
       # que é exatamente o comportamento desejado. A prioridade alta é o que faz
       # esta rota vencer a principal, que casaria o mesmo Host.
-      traefik.http.routers.deskcomm-waha-block.rule: "Host(`${DOMAIN}`) && Path(`/api/v1/webhooks/waha`)"
-      traefik.http.routers.deskcomm-waha-block.entrypoints: "${TRAEFIK_ENTRYPOINT:-websecure}"
-      traefik.http.routers.deskcomm-waha-block.tls.certresolver: "${TRAEFIK_CERTRESOLVER:-letsencrypt}"
-      traefik.http.routers.deskcomm-waha-block.priority: "1000"
-      traefik.http.routers.deskcomm-waha-block.service: "deskcomm"
-      traefik.http.routers.deskcomm-waha-block.middlewares: "deskcomm-deny"
-      traefik.http.middlewares.deskcomm-deny.ipallowlist.sourcerange: "192.0.2.1/32"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}-waha-block.rule=Host(`${DOMAIN}`) && Path(`/api/v1/webhooks/waha`)"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}-waha-block.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}-waha-block.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}-waha-block.priority=1000"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}-waha-block.service=${TRAEFIK_ROUTER:-deskcomm}"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}-waha-block.middlewares=${TRAEFIK_ROUTER:-deskcomm}-deny"
+      - "traefik.http.middlewares.${TRAEFIK_ROUTER:-deskcomm}-deny.ipallowlist.sourcerange=192.0.2.1/32"
 
       # HTTP -> HTTPS. O Caddy fazia isto automaticamente; no Traefik precisa ser
       # dito. Sem este router, quem digitar http:// não recebe resposta nenhuma.
-      traefik.http.routers.deskcomm-http.rule: "Host(`${DOMAIN}`)"
-      traefik.http.routers.deskcomm-http.entrypoints: "${TRAEFIK_ENTRYPOINT_HTTP:-web}"
-      traefik.http.routers.deskcomm-http.middlewares: "deskcomm-https"
-      traefik.http.routers.deskcomm-http.service: "deskcomm"
-      traefik.http.middlewares.deskcomm-https.redirectscheme.scheme: "https"
-      traefik.http.middlewares.deskcomm-https.redirectscheme.permanent: "true"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}-http.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}-http.entrypoints=${TRAEFIK_ENTRYPOINT_HTTP:-web}"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}-http.middlewares=${TRAEFIK_ROUTER:-deskcomm}-https"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-deskcomm}-http.service=${TRAEFIK_ROUTER:-deskcomm}"
+      - "traefik.http.middlewares.${TRAEFIK_ROUTER:-deskcomm}-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.${TRAEFIK_ROUTER:-deskcomm}-https.redirectscheme.permanent=true"
 
   # O Caddy não é removido do compose (isso exigiria editar o arquivo base e
   # quebraria quem usa o padrão) — ele só é posto num profile que nunca é
