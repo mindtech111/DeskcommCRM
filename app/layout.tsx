@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, IBM_Plex_Mono } from "next/font/google";
 import { Toaster } from "sonner";
-import { branding } from "@/lib/branding";
+import { brandTheme, branding } from "@/lib/branding";
 import { ThemeProvider } from "@/lib/theme";
 import { Providers } from "./providers";
 import { PublicEnvScript } from "./public-env-script";
@@ -61,6 +61,11 @@ export function generateMetadata(): Metadata {
         "Centralize o atendimento por WhatsApp num funil só, com agentes de IA que atendem, qualificam e vendem.",
     },
     robots: { index: false, follow: false },
+    // Favicon por tema (APP_THEME). Fica aqui, e não em `app/icon.svg`, porque o
+    // ícone por convenção de arquivo é fixo no build e venceria esta escolha.
+    icons: {
+      icon: brandTheme() === "inochi" ? "/brand/inochi/icon.svg" : "/brand/mindtech/icon.svg",
+    },
   };
 }
 
@@ -82,6 +87,7 @@ export default function RootLayout({
     <html
       lang="pt-BR"
       data-theme="light"
+      data-brand={brandTheme()}
       suppressHydrationWarning
       className={`${inter.variable} ${plexMono.variable}`}
     >

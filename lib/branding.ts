@@ -50,6 +50,28 @@ export function resolveBranding(
   };
 }
 
+/**
+ * Tema visual da instalação (cores, fontes, favicon) — `APP_THEME` no `.env`.
+ *
+ * Mesmo motivo do nome/logo: a imagem é pré-buildada, então o tema tem de ser
+ * escolhido em RUNTIME. Os temas moram no próprio código (tokens em
+ * `app/globals.css` sob `[data-brand="<tema>"]`, arte em `public/brand/<tema>/`);
+ * o `.env` só escolhe qual. Valor desconhecido ou vazio = tema padrão, idêntico
+ * ao de antes desta variável existir.
+ */
+export const BRAND_THEMES = ["inochi"] as const;
+export type BrandTheme = (typeof BRAND_THEMES)[number] | "default";
+
+export function resolveBrandTheme(raw: string | undefined | null): BrandTheme {
+  const v = (raw ?? "").trim().toLowerCase();
+  return (BRAND_THEMES as readonly string[]).includes(v) ? (v as BrandTheme) : "default";
+}
+
+/** Só no servidor: o `data-brand` é escrito no `<html>` pelo layout. */
+export function brandTheme(): BrandTheme {
+  return resolveBrandTheme(process.env.APP_THEME);
+}
+
 /** Lê a marca da fonte correta em cada lado da fronteira servidor/navegador. */
 export function branding(): Branding {
   if (typeof window !== "undefined") {

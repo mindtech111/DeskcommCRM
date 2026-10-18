@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_APP_NAME, resolveBranding } from "@/lib/branding";
+import { DEFAULT_APP_NAME, resolveBrandTheme, resolveBranding } from "@/lib/branding";
 
 const RAIZ = process.cwd();
 
@@ -94,5 +94,28 @@ describe("guarda de white-label (self-host)", () => {
       `estes arquivos voltaram a fixar a marca na interface — use branding() de lib/branding.ts:\n` +
         reincidentes.map((f) => `  ${f}`).join("\n"),
     ).toEqual([]);
+  });
+});
+
+describe("resolveBrandTheme", () => {
+  it("vazio, ausente ou desconhecido cai no tema padrão (instalação existente não muda)", () => {
+    expect(resolveBrandTheme(undefined)).toBe("default");
+    expect(resolveBrandTheme("")).toBe("default");
+    expect(resolveBrandTheme("   ")).toBe("default");
+    expect(resolveBrandTheme("coral")).toBe("default");
+  });
+
+  it("aceita tema conhecido sem diferenciar caixa nem espaços", () => {
+    expect(resolveBrandTheme("inochi")).toBe("inochi");
+    expect(resolveBrandTheme(" Inochi ")).toBe("inochi");
+  });
+
+  it("todo tema conhecido tem tokens no CSS e arte em public/brand", () => {
+    const RAIZ = path.resolve(__dirname, "../..");
+    const css = fs.readFileSync(path.join(RAIZ, "app/globals.css"), "utf8");
+    for (const tema of ["inochi"]) {
+      expect(css).toContain(`[data-brand="${tema}"]`);
+      expect(fs.existsSync(path.join(RAIZ, `public/brand/${tema}/icon.svg`))).toBe(true);
+    }
   });
 });

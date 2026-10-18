@@ -11,11 +11,21 @@ export default async function LoginPage({
   searchParams: Promise<{ next?: string; reset?: string; error?: string }>;
 }) {
   const { next, reset, error } = await searchParams;
+  const brand = branding();
   return (
     <div className="space-y-6">
       <div className="space-y-1.5 text-center">
+        {brand.logoUrl && (
+          // <img> pelo mesmo motivo da Sidebar: URL vem do .env, sem allowlist de build.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={brand.logoUrl}
+            alt={brand.name}
+            className="login-logo mx-auto mb-4 h-10 w-auto max-w-[16rem] object-contain"
+          />
+        )}
         <h1 className="text-2xl font-semibold tracking-tight">Entrar</h1>
-        <p className="text-sm text-muted-foreground">{branding().name}</p>
+        <p className="text-sm text-muted-foreground">{brand.name}</p>
       </div>
       {reset === "success" && (
         <div
