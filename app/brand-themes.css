@@ -110,3 +110,16 @@
   height: 3.5rem;
   max-width: 18rem;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Esqueleto de carregamento (.ds-esqueleto, globals.css) mais claro, em TODAS
+   as marcas (o layout sempre escreve data-brand, inclusive "default").
+   O upstream usa neutral-400/500, que pisca como barras escuras a cada troca
+   de menu. No claro passa a 300 (corpo) / 200 (brilho): ainda visível sobre o
+   fundo (o upstream subiu para 400 por contraste, ver components/ui/skeleton.tsx),
+   mas sem o peso de barra escura. O escuro fica como o upstream definiu.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-brand]:not([data-theme="dark"]) .ds-esqueleto {
+  --ds-esqueleto-corpo: var(--color-neutral-300);
+  --ds-esqueleto-brilho: var(--color-neutral-200);
+}

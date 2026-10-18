@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { resolveBrandTheme } from "@/lib/branding";
+import { iconeDoTema, resolveBrandTheme } from "@/lib/branding";
 
 describe("resolveBrandTheme", () => {
   it("vazio, ausente ou desconhecido cai no tema padrão (instalação existente não muda)", () => {
@@ -29,5 +29,17 @@ describe("resolveBrandTheme", () => {
       expect(css).toContain(`[data-brand="${tema}"]`);
       expect(fs.existsSync(path.join(RAIZ, `public/brand/${tema}/logo.svg`))).toBe(true);
     }
+  });
+});
+
+describe("iconeDoTema", () => {
+  it("tema com ícone próprio usa o svg do tema", () => {
+    expect(iconeDoTema(null, "inochi")).toBe("/brand/inochi/icon.svg");
+  });
+  it("favicon subido em /admin/marca vence o do tema", () => {
+    expect(iconeDoTema("org/favicon.png", "inochi")).toBeNull();
+  });
+  it("tema padrão segue o ícone do upstream", () => {
+    expect(iconeDoTema(null, "default")).toBeNull();
   });
 });
