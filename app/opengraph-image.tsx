@@ -73,7 +73,8 @@ export default async function OpengraphImage() {
             {name}
           </div>
           <div style={{ display: "flex", marginTop: "18px", fontSize: "38px", color: MUTED, maxWidth: "900px", lineHeight: 1.3 }}>
-            Atendimento e vendas por WhatsApp com agentes de IA
+            {/* Mesmo texto do `alt`: o card é para crawlers (sempre pt-BR), não tela de produto. */}
+            {alt}
           </div>
           <div style={{ display: "flex", marginTop: "34px", width: "140px", height: "10px", borderRadius: "6px", background: CORAL }} />
         </div>

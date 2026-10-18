@@ -127,3 +127,26 @@ export function brandTheme(): BrandTheme {
   return resolveBrandTheme(process.env.APP_THEME);
 }
 
+
+/** Temas com favicon próprio em `public/brand/<tema>/icon.svg`. */
+const TEMAS_COM_ICONE: readonly BrandTheme[] = ["inochi"];
+
+/**
+ * Favicon do tema, ou `null` para seguir o do upstream (ícone desenhado em
+ * `app/icon.tsx`). Um favicon subido em /admin/marca sempre vence o do tema.
+ */
+export function iconeDoTema(
+  faviconSubido: string | null | undefined,
+  tema: BrandTheme = brandTheme(),
+): string | null {
+  if ((faviconSubido ?? "").trim().length > 0) return null;
+  return TEMAS_COM_ICONE.includes(tema) ? `/brand/${tema}/icon.svg` : null;
+}
+
+/** Pronto para espalhar no `generateMetadata`: `{ icons }` do tema, ou `{}`. */
+export function iconesDoTema(
+  faviconSubido: string | null | undefined,
+): { icons?: { icon: string } } {
+  const icone = iconeDoTema(faviconSubido);
+  return icone ? { icons: { icon: icone } } : {};
+}

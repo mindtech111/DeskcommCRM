@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { headers } from "next/headers";
 import { Toaster } from "sonner";
-import { brandTheme } from "@/lib/branding";
+import { brandTheme, iconesDoTema } from "@/lib/branding";
 import { coresDaBarraDoNavegador } from "@/lib/branding/barra-do-navegador";
 import { MarcaDaInstalacaoProvider } from "@/lib/branding/contexto";
 import { cssDaMarca } from "@/lib/branding/css";
@@ -122,6 +122,9 @@ export async function generateMetadata(): Promise<Metadata> {
     // Com um ícone subido em `/admin/marca` (migration 0443), o link aponta para
     // o arquivo no storage da instalação — ver `iconeDaAba`.
     icons: { icon: iconeDaAba(linha?.favicon_path) },
+    // Fork Mindtech: tema com ícone próprio (APP_THEME) troca o ícone desenhado;
+    // favicon subido em /admin/marca continua vencendo (aí isto vira `{}`).
+    ...iconesDoTema(linha?.favicon_path),
   };
 }
 
