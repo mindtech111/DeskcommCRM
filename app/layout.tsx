@@ -107,6 +107,9 @@ export async function generateMetadata(): Promise<Metadata> {
     authors: [{ name }],
     keywords: ["CRM", "atendimento", "WhatsApp", "IA conversacional", "LGPD", "multi-tenant"],
     robots: { index: false, follow: false },
+    // Fork Mindtech: base absoluta do card OG. DOMAIN é runtime (env_file), não
+    // NEXT_PUBLIC_* (queimada no build da imagem genérica). Ver lib/branding.ts.
+    metadataBase: new URL(`https://${process.env.DOMAIN || "localhost"}`),
     // Sem esta linha o navegador pede `/favicon.ico`, que não existe: medido em
     // produção, o 404 é a `app/not-found.tsx` INTEIRA (19.435 bytes de HTML)
     // servida para um pedido de ícone, em toda navegação sem cache. Declarar
