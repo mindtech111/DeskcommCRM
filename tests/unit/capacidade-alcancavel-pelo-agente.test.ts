@@ -72,6 +72,8 @@ const INALCANCAVEIS_CONHECIDAS: ReadonlyArray<string> = [];
 const ESCRITA_QUE_E_TRABALHO_DE_ATENDENTE: ReadonlyArray<string> = [
   // `app/api/v1/leads/` — POST exige `agent`. Um atendente cria negócio pela tela.
   "crm_create_lead",
+  // `app/api/v1/leads/[id]/retomar/` — POST exige `agent` (issue #1538).
+  "crm_retomar_lead",
   // `app/api/v1/leads/[id]/` — PATCH exige `agent`.
   "crm_update_lead",
   // `app/api/v1/leads/[id]/move/` — exige `agent`. Mover card é o trabalho do dia.
@@ -81,6 +83,16 @@ const ESCRITA_QUE_E_TRABALHO_DE_ATENDENTE: ReadonlyArray<string> = [
   // `app/api/v1/ai/cases/[id]/reply/` — POST exige `agent`. Registrar no chamado
   // é o trabalho de quem atende (paridade medida na integração do papel novo).
   "crm_add_case_note",
+  // `app/api/v1/contacts/[id]/proposals/` — POST exige `agent`, e a paridade é
+  // com o PATCH de contato (`app/api/v1/contacts/[id]/`), que também exige
+  // `agent`: editar a ficha de um cliente é trabalho de quem atende.
+  //
+  // O poder concedido aqui é MENOR que o daquela rota, não igual: esta tool não
+  // escreve em `contacts` — cria uma linha em `contact_field_proposals` que uma
+  // PESSOA precisa confirmar (spec 17 §4b). O que ela custa é atenção humana, e
+  // esse custo é limitado pelo índice único parcial da 0123: no máximo uma
+  // proposta viva por contato e campo, ou seja três por contato.
+  "crm_propose_contact_field",
   // `app/api/v1/ai/cases/[id]/` — exige `agent`.
   "crm_close_human_case",
   // `app/api/v1/conversations/[id]/reactivate-bot/` — POST exige `agent`.
@@ -99,6 +111,18 @@ const ESCRITA_QUE_E_TRABALHO_DE_ATENDENTE: ReadonlyArray<string> = [
   // `app/api/v1/conversation-tags` é leitura `viewer`; marcar conversa é trabalho
   // de atendente e o dano máximo é um filtro sujo, reversível na tela.
   "crm_manage_tags",
+  // `lib/mcp/tools/propostas.ts` — exige `agent`, de propósito. Rascunhar
+  // proposta é o mesmo tipo de escrita de `crm_create_lead`: cria um registro
+  // que uma PESSOA sempre revisa antes de qualquer efeito externo (nunca
+  // envia — só o manager envia). O dano máximo é um rascunho a mais para
+  // descartar.
+  "crm_draft_proposal",
+  // `app/api/v1/conversations/[id]/drafts/` — POST exige `agent` (auth-dual).
+  // Paridade medida com a própria rota: quem integra e quem atende criam
+  // rascunho com o MESMO papel. O poder concedido é o MENOR possível — a tool
+  // grava uma linha que uma PESSOA precisa revisar e enviar (`consumed_at` só
+  // depois do clique); ela não envia nada ao cliente, então não muda a casa.
+  "crm_create_conversation_draft",
 ];
 
 function alcancavelPeloAgente(requiresRole: Role): boolean {

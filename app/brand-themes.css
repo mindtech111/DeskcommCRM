@@ -1,0 +1,112 @@
+/* ═════════════════════════════════════════════════════════════════════════
+   Temas por instalação — FORK MINDTECH (não existe no upstream).
+   Escolhido em runtime por APP_THEME (lib/branding.ts → <html data-brand>).
+   Mora num arquivo próprio, importado pelo app/layout.tsx DEPOIS do
+   globals.css, para o sync com o upstream conflitar em uma linha e não em
+   cem. Cor de destaque, logo e favicon de outras marcas vão pelo white-label
+   nativo (/admin/marca, APP_ACCENT_HEX); aqui só o que o nativo não cobre:
+   fontes e neutros (e, na Inochi, a escala dourada ajustada à mão do DS V5).
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Tema "inochi" — escolhido em runtime por APP_THEME=inochi (ver lib/branding.ts).
+   Fonte da marca: INOCHI design system V5 (pérola, dourado, taupe; Cinzel +
+   Montserrat). Sem APP_THEME nada abaixo se aplica e o padrão fica intacto.
+   Dourado só em acento/ação; texto corrido segue escuro (regra do DS V5).
+   ───────────────────────────────────────────────────────────────────────── */
+@font-face {
+  font-family: "InochiDisplay";
+  src: url("/brand/inochi/cinzel.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "InochiText";
+  src: url("/brand/inochi/montserrat.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+[data-brand="inochi"] {
+  --color-bg: #fbf8f2;
+  --color-surface: #ffffff;
+  --color-surface-elevated: #f4eee4;
+  --color-overlay: rgba(43, 38, 33, 0.42);
+  --color-text: #2b2621;
+  --color-text-muted: #5f564c;
+  --color-text-subtle: #7a6e61;
+  --color-border: #e8ded1;
+  --color-border-strong: #dccbb1;
+
+  --color-neutral-50:  #fbf8f2;
+  --color-neutral-100: #f4eee4;
+  --color-neutral-200: #e8ded1;
+  --color-neutral-300: #dccbb1;
+  --color-neutral-400: #b3a593;
+  --color-neutral-500: #7a6e61;
+  --color-neutral-600: #5f564c;
+  --color-neutral-700: #473f37;
+  --color-neutral-800: #332d27;
+  --color-neutral-900: #2b2621;
+  --color-neutral-950: #15120f;
+
+  /* Dourado (11 stops). 400 = dourado da marca (#C6A16A); 600 = ação (AA c/ branco). */
+  --color-accent-50:  #fbf7ef;
+  --color-accent-100: #f3ebdd;
+  --color-accent-200: #e8d9bd;
+  --color-accent-300: #d9c095;
+  --color-accent-400: #c6a16a;
+  --color-accent-500: #ad8650;
+  --color-accent-600: #896b3c;
+  --color-accent-700: #6f5631;
+  --color-accent-800: #574428;
+  --color-accent-900: #43351f;
+  --color-accent-950: #241c10;
+  --color-accent: var(--color-accent-600);
+  --color-accent-fg: #ffffff;
+  --color-accent-soft: var(--color-accent-100);
+  --color-accent-hover: var(--color-accent-700);
+}
+
+[data-brand="inochi"][data-theme="dark"] {
+  --color-bg: #15120f;
+  --color-surface: #1d1915;
+  --color-surface-elevated: #26211c;
+  --color-overlay: rgba(0, 0, 0, 0.55);
+  --color-text: #f2ece2;
+  --color-text-muted: #c9bfb1;
+  --color-text-subtle: #a3978a;
+  --color-border: #332d27;
+  --color-border-strong: #473f37;
+  /* Escala invertida, como no escuro padrão (50 = mais claro de texto). */
+  --color-neutral-50:  #f2ece2;
+  --color-neutral-100: #e4dbcd;
+  --color-neutral-200: #c9bfb1;
+  --color-neutral-300: #a3978a;
+  --color-neutral-400: #74695d;
+  --color-neutral-500: #544b42;
+  --color-neutral-600: #3d3630;
+  --color-neutral-700: #2e2924;
+  --color-neutral-800: #221e1a;
+  --color-neutral-900: #1a1612;
+  --color-neutral-950: #0f0d0b;
+  --color-accent: var(--color-accent-400);
+  --color-accent-fg: #15120f;
+  --color-accent-soft: rgba(198, 161, 106, 0.16);
+  --color-accent-hover: var(--color-accent-300);
+}
+
+[data-brand="inochi"] body,
+[data-brand="inochi"] .font-sans {
+  font-family: "InochiText", "Montserrat", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+[data-brand="inochi"] h1,
+[data-brand="inochi"] h2 {
+  font-family: "InochiDisplay", "Cinzel", Georgia, serif;
+  letter-spacing: 0.02em;
+}
+/* O logo da Inochi é um lockup com descritor: no login ele precisa de altura própria. */
+[data-brand="inochi"] .login-logo {
+  height: 3.5rem;
+  max-width: 18rem;
+}

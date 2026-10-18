@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/conversations/[id]/usable-for-rag
  *
@@ -5,8 +6,15 @@
  * conversation becomes eligible for the daily kb-conversations-batch cron,
  * which anonymizes + chunks + embeds the dialogue into the agent's KB.
  *
+ * Desmarcar (enabled=false) também tira de `ai_chunks` os trechos que a
+ * ingestão já gravou desta conversa (#3042, migration 0688): só zerar a flag
+ * impede as ingestões futuras, e o retriever continuaria trazendo o que já foi
+ * aprendido. Desmarcar e marcar de novo não reingere na hora: a conversa volta
+ * ao acervo no próximo lote.
+ *
  * Auth: cookie session, role >= agent.
- * Audit: action `conversation.usable_for_rag_toggled` with prev/next values.
+ * Audit: action `conversation.usable_for_rag_toggled` with prev/next values
+ * (and `trechos_removidos` when disabling).
  */
 import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
@@ -17,7 +25,9 @@ import { ApiError } from "@/lib/api/types";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { validateRequest } from "@/lib/schemas/_validate";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -28,11 +38,15 @@ interface RouteCtx {
 }
 
 export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
 
   const authz = await requireRole("agent", { requestId, resource: "conversations" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
 
   let input;
@@ -87,7 +101,21 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
     return fail("internal_error", error.message, 500, { requestId });
   }
   if (!data) {
-    return fail("not_found", "Conversa não encontrada.", 404, { requestId });
+    return fail("not_found", t("Conversa não encontrada."), 404, { requestId });
+  }
+
+  // O org vem da sessão (requireRole), nunca do corpo; a função confere que a
+  // conversa é dele antes de apagar.
+  let trechosRemovidos: number | undefined;
+  if (!input.enabled) {
+    const { data: removidos, error: trechosErro } = await createAdminClient().rpc(
+      "fn_conversa_remove_trechos_do_rag",
+      { p_org: activeOrg.orgId, p_conversation: id },
+    );
+    if (trechosErro) {
+      return fail("internal_error", trechosErro.message, 500, { requestId });
+    }
+    trechosRemovidos = (removidos as number | null) ?? 0;
   }
 
   await audit({
@@ -96,9 +124,17 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
     organizationId: activeOrg.orgId,
     resourceType: "conversation",
     resourceId: id,
-    metadata: { conversation_id: id, enabled: input.enabled, prev },
+    metadata: {
+      conversation_id: id,
+      enabled: input.enabled,
+      prev,
+      ...(trechosRemovidos === undefined ? {} : { trechos_removidos: trechosRemovidos }),
+    },
     requestId,
   });
 
-  return ok(data, { requestId });
+  return ok(
+    trechosRemovidos === undefined ? data : { ...data, trechos_removidos: trechosRemovidos },
+    { requestId },
+  );
 }

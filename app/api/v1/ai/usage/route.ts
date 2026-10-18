@@ -1,15 +1,11 @@
 /**
  * GET /api/v1/ai/usage — observability dashboard for AI invocations.
  *
- * Aggregates `ai_invocations` (cost, tokens, latency p50/p95, count) per day,
- * plus a per-day handoff rate (handoffs from `event_log` / inbound messages).
+ * Aggregates `llm_calls` (cost, tokens, cache, latency p50/p95, calls, agent
+ * turns) per day, plus a per-day handoff rate (handoffs from `event_log` /
+ * inbound messages) — all summed in Postgres by `fn_uso_de_ia` (migration 0586).
  *
  * Auth: cookie session, role manager+. organization_id resolved from JWT.
- *
- * Aggregation is done in TypeScript (see `lib/ai/usage/aggregate.ts`) so this
- * stays portable and unit-testable. We use the user-scoped client so RLS
- * enforces tenant isolation; the explicit organization_id filter is defense
- * in depth and required by repo convention.
  */
 import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
@@ -17,7 +13,9 @@ import { z } from "zod";
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
-import { aggregateUsage, type InvocationRow } from "@/lib/ai/usage/aggregate";
+import { montarPayloadDeUso, usoDeIaSchema } from "@/lib/ai/usage/aggregate";
+import { logger } from "@/lib/logger";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -64,13 +62,14 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const authz = await requireRole("manager", { requestId, resource: "ai_usage" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org: activeOrg } = authz;
 
   const parsed = querySchema.safeParse(
     Object.fromEntries(req.nextUrl.searchParams.entries()),
   );
   if (!parsed.success) {
-    return fail("validation_failed", "Filtros inválidos.", 422, {
+    return fail("validation_failed", t("Filtros inválidos."), 422, {
       requestId,
       details: parsed.error.flatten(),
     });
@@ -82,112 +81,35 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const supabase = await createClient();
 
-  // ---- 1. ai_invocations rows for the range/filters ------------------------
-  let invQ = supabase
-    .from("ai_invocations")
-    .select(
-      "created_at, invocation_kind, cost_cents, prompt_tokens, completion_tokens, total_tokens, latency_ms",
-    )
-    .eq("organization_id", activeOrg.orgId)
-    .gte("created_at", fromIso)
-    .lte("created_at", toIso)
-    .order("created_at", { ascending: true })
-    .limit(50_000);
-
-  if (parsed.data.agent_id) invQ = invQ.eq("agent_id", parsed.data.agent_id);
-  if (parsed.data.invocation_kind) invQ = invQ.eq("invocation_kind", parsed.data.invocation_kind);
-
-  const { data: invRows, error: invErr } = await invQ;
-  if (invErr) {
-    console.warn("[ai-usage] ai_invocations query failed", { error: invErr.message });
-    return fail("internal_error", "Erro ao agregar invocations.", 500, { requestId });
-  }
-
-  // ---- 2. inbound messages per day ----------------------------------------
-  const dailyInbounds = new Map<string, number>();
-  const { data: inboundRows, error: inboundErr } = await supabase
-    .from("messages")
-    .select("created_at")
-    .eq("organization_id", activeOrg.orgId)
-    .eq("direction", "inbound")
-    .gte("created_at", fromIso)
-    .lte("created_at", toIso)
-    .limit(100_000);
-  if (inboundErr) {
-    console.warn("[ai-usage] inbound messages query failed", { error: inboundErr.message });
-  } else {
-    for (const r of inboundRows ?? []) {
-      const day = (r as { created_at: string }).created_at.slice(0, 10);
-      dailyInbounds.set(day, (dailyInbounds.get(day) ?? 0) + 1);
-    }
-  }
-
-  // ---- 3. handoffs per day (event_log: ai.handoff_triggered) --------------
-  const dailyHandoffs = new Map<string, number>();
-  const { data: handoffRows, error: handoffErr } = await supabase
-    .from("event_log")
-    .select("created_at")
-    .eq("organization_id", activeOrg.orgId)
-    .eq("event_type", "ai.handoff_triggered")
-    .gte("created_at", fromIso)
-    .lte("created_at", toIso)
-    .limit(100_000);
-  if (handoffErr) {
-    console.warn("[ai-usage] handoff events query failed", { error: handoffErr.message });
-  } else {
-    for (const r of handoffRows ?? []) {
-      const day = (r as { created_at: string }).created_at.slice(0, 10);
-      dailyHandoffs.set(day, (dailyHandoffs.get(day) ?? 0) + 1);
-    }
-  }
-
-  // ---- 1b. llm_calls: a telemetria do runtime que REALMENTE atende ---------
+  // A soma é feita NO BANCO (`fn_uso_de_ia`, migration 0586). Esta rota buscava
+  // as linhas de `llm_calls` e somava aqui — e o PostgREST entrega no máximo
+  // `max_rows` (1000) linhas: passada a milésima chamada do período, os dias
+  // mais recentes sumiam. A função lê só `llm_calls`, a ÚNICA tabela de
+  // telemetria desde a 0130 — somar `ai_invocations` junto contaria a mesma
+  // linha duas vezes (`tests/unit/usage-nao-conta-em-dobro.test.ts`).
   //
-  // Existem duas tabelas de telemetria: `ai_invocations`, escrita pelos workers
-  // legados, e `llm_calls`, escrita pelo agent-engine — que é o consumidor
-  // padrão (AGENT_DISPATCH_CONSUMER=engine). Esta tela lia só a primeira, então
-  // numa instalação nova ela mostrava ZERO custo enquanto o dinheiro saía:
-  // medido nesta VPS, 90 chamadas e R$ 0,15 gastos com a tela em branco.
-  //
-  // O filtro por agente não se aplica aqui (llm_calls guarda job/contato, não
-  // agente); nesse caso a tela continua respondendo só com o legado, em vez de
-  // atribuir custo a um agente que não dá para comprovar.
-  const engineRows: InvocationRow[] = [];
-  if (!parsed.data.agent_id) {
-    const { data: llmRows, error: llmErr } = await supabase
-      .from("llm_calls")
-      .select("created_at, purpose, cost_cents, input_tokens, output_tokens, latency_ms")
-      .eq("organization_id", activeOrg.orgId)
-      .gte("created_at", fromIso)
-      .lte("created_at", toIso)
-      .limit(50_000);
-    if (llmErr) {
-      console.warn("[ai-usage] llm_calls query failed", { error: llmErr.message });
-    } else {
-      for (const r of (llmRows ?? []) as unknown as {
-        created_at: string; purpose: string | null; cost_cents: number | null;
-        input_tokens: number | null; output_tokens: number | null; latency_ms: number | null;
-      }[]) {
-        if (parsed.data.invocation_kind && r.purpose !== parsed.data.invocation_kind) continue;
-        engineRows.push({
-          created_at: r.created_at,
-          invocation_kind: r.purpose ?? "turno",
-          cost_cents: r.cost_cents,
-          prompt_tokens: r.input_tokens,
-          completion_tokens: r.output_tokens,
-          total_tokens: (r.input_tokens ?? 0) + (r.output_tokens ?? 0),
-          latency_ms: r.latency_ms,
-        });
-      }
-    }
+  // Cliente da sessão: a função é `security invoker`, então a RLS continua
+  // isolando a organização; `p_org` é defesa em profundidade.
+  const { data, error } = await supabase.rpc("fn_uso_de_ia", {
+    p_org: activeOrg.orgId,
+    p_desde: fromIso,
+    p_ate: toIso,
+    // O filtro por agente continua existindo: a 0130 levou `agent_id` para
+    // `llm_calls` justamente para a unificação não custar essa capacidade.
+    p_agent_id: parsed.data.agent_id,
+    p_purpose: parsed.data.invocation_kind,
+  });
+  if (error) {
+    logger.warn("ai_usage.rpc_falhou", { requestId, error: error.message });
+    return fail("internal_error", t("Erro ao agregar o uso de IA."), 500, { requestId });
+  }
+  const uso = usoDeIaSchema.safeParse(data);
+  if (!uso.success) {
+    logger.warn("ai_usage.formato_inesperado", { requestId, issues: uso.error.issues.length });
+    return fail("internal_error", t("Erro ao agregar o uso de IA."), 500, { requestId });
   }
 
-  const payload = aggregateUsage(
-    [...((invRows ?? []) as InvocationRow[]), ...engineRows],
-    dailyInbounds,
-    dailyHandoffs,
-    range,
-  );
+  const payload = montarPayloadDeUso(uso.data, range);
 
   return ok(payload, { requestId });
 }

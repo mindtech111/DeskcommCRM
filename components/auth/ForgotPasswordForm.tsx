@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTransition, useState } from "react";
 
+import { useT } from "@/hooks/i18n/useT";
 import { forgotPasswordSchema, type ForgotPasswordInput } from "@/lib/auth/schemas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { requestPasswordReset } from "@/app/actions/auth/requestPasswordReset";
 
 export function ForgotPasswordForm() {
+  const t = useT();
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
@@ -33,11 +35,20 @@ export function ForgotPasswordForm() {
         return;
       }
       if (res.error === "rate_limited") {
-        setServerError("Muitas tentativas. Aguarde alguns minutos.");
+        setServerError(t("Muitas tentativas. Aguarde alguns minutos."));
       } else if (res.error === "validation_error") {
-        setServerError("Email inválido. Confira o campo.");
+        setServerError(t("Email inválido. Confira o campo."));
+      } else if (res.error === "smtp_not_configured") {
+        // #2755 — sem SMTP a instalação não envia e-mail NENHUM: dizer
+        // "tente novamente" mandava quem esqueceu a senha repetir um gesto que
+        // nunca vai funcionar. Dizemos o que é, e quem resolve é o administrador.
+        setServerError(
+          t(
+            "A recuperação de senha não está disponível nesta instalação: sem SMTP configurado não sai e-mail nenhum. Contate o administrador para configurar em /admin/email.",
+          ),
+        );
       } else {
-        setServerError("Não foi possível enviar o e-mail. Tente novamente.");
+        setServerError(t("Não foi possível enviar o e-mail. Tente novamente."));
       }
     });
   };
@@ -48,17 +59,16 @@ export function ForgotPasswordForm() {
         className="space-y-2 rounded-md border bg-muted/40 px-4 py-6 text-center"
         role="status"
       >
-        <p className="text-sm font-medium">Verifique seu e-mail</p>
+        <p className="text-sm font-medium">{t("Verifique seu e-mail")}</p>
         <p className="text-sm text-muted-foreground">
-          Se existir uma conta com esse e-mail, enviamos um link para redefinir a
-          senha.
+          {t("Se existir uma conta com esse e-mail, enviamos um link para redefinir a senha.")}
         </p>
       </div>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+    <form method="post" onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
       <div className="space-y-1.5">
         <Label htmlFor="email">Email</Label>
         <Input
@@ -70,7 +80,7 @@ export function ForgotPasswordForm() {
           {...register("email")}
         />
         {errors.email && (
-          <p className="text-xs text-destructive">{errors.email.message}</p>
+          <p className="text-xs text-destructive">{t(errors.email.message ?? "")}</p>
         )}
       </div>
       {serverError && (
@@ -82,7 +92,7 @@ export function ForgotPasswordForm() {
         </div>
       )}
       <Button type="submit" className="w-full" disabled={isPending}>
-        {isPending ? "Enviando..." : "Enviar link de redefinição"}
+        {isPending ? t("Enviando...") : t("Enviar link de redefinição")}
       </Button>
     </form>
   );

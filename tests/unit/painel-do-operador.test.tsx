@@ -4,6 +4,31 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { PainelDoOperador } from "@/app/app/ai/agents/[id]/_components/PainelDoOperador";
+import { apiClient } from "@/lib/api/client";
+
+/**
+ * Dublê POR URL, não por ordem de chamada: o painel e o ModelPicker buscam no
+ * mesmo tick, e um `mockResolvedValueOnce` global seria consumido por quem
+ * chegasse primeiro — teste que passa ou falha por corrida.
+ */
+const METRICAS_VAZIAS = {
+  dias: 30,
+  turnos: 0,
+  agiu: 0,
+  promessas: { declaradas: 0, assumidas: 0, semDono: 0 },
+  quisAgirENaoPode: 0,
+};
+let metricas: unknown = METRICAS_VAZIAS;
+
+vi.mock("@/lib/api/client", () => ({
+  apiClient: {
+    get: vi.fn(async (url: string) =>
+      url.includes("operator-metrics") ? { data: metricas } : { data: [] },
+    ),
+    put: vi.fn(async () => ({ data: {} })),
+    post: vi.fn(async () => ({ data: {} })),
+  },
+}));
 
 /**
  * O painel do papel Operador (spec 16 §6).
@@ -23,6 +48,10 @@ function renderPainel(overrides: Partial<React.ComponentProps<typeof PainelDoOpe
     toolIds: [],
     onToolIdsChange: vi.fn(),
     modeloDoConversador: "claude-sonnet-4-6",
+    // A medida do papel é do agente DESTA página (ver
+    // `operador-metrica-e-do-agente-da-tela.test.ts`): sem o id, o painel não
+    // tem o que pedir.
+    agentId: "aaaaaaaa-0000-4000-8000-00000000000a",
     ...overrides,
   };
   // O ModelPicker busca modelos por react-query; sem o provider ele estoura.
@@ -99,5 +128,73 @@ describe("painel do Operador — disciplina de informação", () => {
     const props = renderPainel({ enabled: false });
     await userEvent.click(screen.getByTestId("operador-liga"));
     expect(props.onEnabledChange).toHaveBeenCalledWith(true);
+  });
+});
+
+/**
+ * O RETORNO DO PAPEL — o que a auditoria disse não existir.
+ *
+ * O painel era 100% formulário: dizia o que o papel FARIA e nada sobre o que fez.
+ * As três medidas que a spec 16 §7 prometeu ("taxa de ação por turno, promessas
+ * declaradas vs quitadas, turnos em que quis agir e não pôde") não tinham nem
+ * dado nem tela — e "se ele parar de agir, alguém vê" era falso.
+ */
+describe("o papel funcionando aparece na tela", () => {
+  it("com o papel DESLIGADO não pergunta nem mostra — não há o que medir", () => {
+    renderPainel({ enabled: false });
+    expect(screen.queryByTestId("operador-como-esta-indo")).toBeNull();
+  });
+
+  it("zero conversas não vira '0' cru — num papel recém-ligado isso é o esperado", async () => {
+    // Número solto num painel de configuração parece falha. A frase diz que o
+    // estado é normal e o que vai acontecer.
+    metricas = { dias: 30, turnos: 0, agiu: 0, promessas: { declaradas: 0, assumidas: 0, semDono: 0 }, quisAgirENaoPode: 0 };
+    renderPainel({ enabled: true });
+    const bloco = await screen.findByTestId("operador-como-esta-indo");
+    expect(bloco.textContent).toContain("Nenhuma conversa passou por aqui");
+    expect(bloco.textContent).not.toMatch(/\b0 de 0\b/);
+  });
+
+  it("cada número responde 'e daí?' — e o que pede configuração diz onde", async () => {
+    metricas = {
+        dias: 30,
+        turnos: 40,
+        agiu: 31,
+        promessas: { declaradas: 12, assumidas: 9, semDono: 3 },
+        quisAgirENaoPode: 2,
+      };
+    renderPainel({ enabled: true });
+
+    expect((await screen.findByTestId("operador-metrica-acao")).textContent).toContain("31");
+    const promessas = screen.getByTestId("operador-metrica-promessas");
+    // "assumidas", nunca "cumpridas": o sistema não apura cumprimento.
+    expect(promessas.textContent).toContain("responsável");
+    expect(promessas.textContent?.toLowerCase()).not.toContain("cumprid");
+    // O único número que aponta ação de configuração vem com o caminho.
+    expect(screen.getByTestId("operador-metrica-sem-mao").textContent).toContain("marcar abaixo");
+  });
+
+  it("pede a medida do agente DESTA página, não da organização", async () => {
+    // O agregado da organização na página de um agente manda configurar o agente
+    // errado. Ver `operador-metrica-e-do-agente-da-tela.test.ts`.
+    renderPainel({ enabled: true, agentId: "aaaaaaaa-0000-4000-8000-0000000000ff" });
+    await screen.findByTestId("operador-como-esta-indo");
+    const urls = vi.mocked(apiClient.get).mock.calls.map(([url]) => String(url));
+    expect(urls.filter((u) => u.includes("operator-metrics"))).toContain(
+      "/api/v1/ai/operator-metrics?agent_id=aaaaaaaa-0000-4000-8000-0000000000ff",
+    );
+  });
+
+  it("sem agente (agente ainda não criado) não pergunta — não há de quem medir", () => {
+    vi.mocked(apiClient.get).mockClear();
+    renderPainel({ enabled: true, agentId: null });
+    expect(vi.mocked(apiClient.get).mock.calls.some(([url]) => String(url).includes("operator-metrics"))).toBe(false);
+  });
+
+  it("sem promessa órfã, não inventa alarme", async () => {
+    metricas = { dias: 30, turnos: 10, agiu: 10, promessas: { declaradas: 4, assumidas: 4, semDono: 0 }, quisAgirENaoPode: 0 };
+    renderPainel({ enabled: true });
+    await screen.findByTestId("operador-metrica-promessas");
+    expect(screen.queryByTestId("operador-metrica-sem-mao")).toBeNull();
   });
 });

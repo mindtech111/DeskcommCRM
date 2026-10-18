@@ -174,8 +174,10 @@ function pct(fraction: number): string {
 function diagnosisBody(reason: HoldReason, rates: SessionRates, k: HealthKnobs): string {
   if (reason === 'go_live') {
     return (
-      'Número novo aguardando liberação (go-live). O outbound nasce em espera por segurança: ' +
-      'a fila retém as mensagens, nada é perdido. Resolva este item quando o número estiver pronto para disparar.'
+      'Número novo aguardando liberação (go-live). Os disparos que o sistema começa — follow-up ' +
+      'e cadência de prospecção — nascem em espera por segurança: a fila retém, nada é perdido. ' +
+      'RESPONDER quem te escreveu continua funcionando normalmente. Resolva este item quando o ' +
+      'número estiver pronto para disparar.'
     );
   }
   if (reason === 'block_rate') {
@@ -230,6 +232,9 @@ async function evaluateSession(
 ): Promise<{ held: number; released: number; alerts: number }> {
   const delta = { held: 0, released: 0, alerts: 0 };
   const client = await harness.connect();
+  // #2624 — mesma marcação do #2621: o finally só libera COM erro quem falhou
+  // dentro da transação (release(err) → _remove no pg-pool, cliente descartado).
+  let erroNaTransacao: Error | undefined;
   try {
     await client.query('begin');
     const { rows } = await client.query<HealthRow>(
@@ -341,6 +346,9 @@ async function evaluateSession(
     await client.query('commit');
     return delta;
   } catch (err) {
+    // #2624 — marcado ANTES do rollback: se o rollback estourar e virar
+    // AggregateError, o cliente ainda sai COM erro e o pg-pool o descarta.
+    erroNaTransacao = err instanceof Error ? err : new Error(String(err));
     try {
       await client.query('rollback');
     } catch (rollbackErr) {
@@ -348,7 +356,7 @@ async function evaluateSession(
     }
     throw err;
   } finally {
-    client.release();
+    client.release(erroNaTransacao);
   }
 }
 

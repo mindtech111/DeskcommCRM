@@ -13,7 +13,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
+import { loadAuthUser, orgAtivaSemPortao, resolveActiveOrg } from "@/lib/auth/server";
 import { audit } from "@/lib/audit";
 import { createClient } from "@/lib/supabase/server";
 import type { AuthUser, Role } from "@/lib/auth/types";
@@ -21,6 +21,10 @@ import type { AuthUser, Role } from "@/lib/auth/types";
 vi.mock("@/lib/auth/server", () => ({
   loadAuthUser: vi.fn(),
   resolveActiveOrg: vi.fn(),
+  orgAtivaSemPortao: vi.fn(),
+  // Sessão sem dívida de MFA: estes testes medem RBAC, não o gate de
+  // segundo fator (que tem suíte própria em require-role-mfa.test.ts).
+  mfaEmDivida: vi.fn(async () => false),
 }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
@@ -79,12 +83,16 @@ function session(role: Role | null, tables: Record<string, unknown> = {}) {
         full_name: null,
         avatar_url: null,
         is_platform_admin: false,
+        idioma: "pt-BR" as const,
         organizations: [{ organization_id: ORG_ID, organization_name: "Org", role }],
       }
     : null;
   vi.mocked(loadAuthUser).mockResolvedValue(user);
   vi.mocked(resolveActiveOrg).mockResolvedValue(
     role ? { orgId: ORG_ID, name: "Org", role } : null,
+  );
+  vi.mocked(orgAtivaSemPortao).mockResolvedValue(
+    role ? { orgId: ORG_ID, name: "Org", role, org_status: "active" } : null,
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   vi.mocked(createClient).mockResolvedValue(makeSupabaseStub(role, tables) as any);
@@ -188,6 +196,44 @@ describe("grupo inbox/conversations (read agent 200, write viewer 403)", () => {
     );
     expect(res.status).toBe(403);
     expect(await errorCode(res)).toBe("forbidden_role");
+  });
+
+  /**
+   * Esta rota é a que o release 1.2.1 (`d774fcce`) fechou: era a ÚNICA escrita
+   * em `conversations/[id]/*` sem gate, e como a policy de SELECT deixa o
+   * viewer enxergar toda conversa da org, o papel mais fraco do tenant tinha
+   * escrita irrestrita no bucket — 50 MB por arquivo, com service_role.
+   *
+   * O caso nasceu de uma triagem de PR: a `main` fechou o buraco enquanto um PR
+   * de contribuidor editava OUTRO trecho do mesmo arquivo. O merge combinou os
+   * dois corretamente, mas ninguém tinha como PROVAR isso — a única evidência
+   * disponível era ler o `requireRole` no fonte, e presença de símbolo não é
+   * comportamento. Da próxima vez (rebase, squash, ou um PR que toque estas
+   * linhas) o gate cairia em silêncio e nenhum job acusaria.
+   */
+  it("POST /conversations/[id]/media nega 403 para viewer", async () => {
+    session("viewer");
+    const { POST } = await import("@/app/api/v1/conversations/[id]/media/route");
+    const res = await POST(
+      req("/api/v1/conversations/c1/media", { method: "POST" }),
+      params({ id: "c1" }),
+    );
+    expect(res.status).toBe(403);
+    expect(await errorCode(res)).toBe("forbidden_role");
+  });
+
+  it("POST /conversations/[id]/media deixa agent passar do gate de role", async () => {
+    // Sem este caso, apagar a rota inteira deixaria o teste acima verde — 403
+    // por ausência de import não se distingue de 403 por RBAC. Aqui o agent tem
+    // de PASSAR do gate; o que acontece depois (404 da conversa inexistente no
+    // stub) não é assunto deste caso.
+    session("agent");
+    const { POST } = await import("@/app/api/v1/conversations/[id]/media/route");
+    const res = await POST(
+      req("/api/v1/conversations/c1/media", { method: "POST" }),
+      params({ id: "c1" }),
+    );
+    expect(res.status).not.toBe(403);
   });
 
   it("PATCH /conversations/[id] nega 403 para viewer", async () => {

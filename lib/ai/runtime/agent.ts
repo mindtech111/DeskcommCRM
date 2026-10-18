@@ -25,20 +25,41 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, stepCountIs, type LanguageModel, type StopCondition, type ToolSet } from "ai";
+import { generateText, stepCountIs, streamText, type LanguageModel, type StopCondition, type ToolSet } from "ai";
 
+// Fonte única do endpoint — a mesma constante que o registry de produção usa.
+// Repetir a URL aqui criaria dois lugares para consertar quando ela mudar.
+import {
+  cabecalhosDeAtribuicaoOpenRouter,
+  DEEPSEEK_ENDPOINT,
+  OPENAI_CODEX_ENDPOINT,
+  OPENROUTER_ENDPOINT,
+  REQUESTY_ENDPOINT,
+} from "@/lib/agent-engine/edge/llm/providers";
 import { CredentialUnavailableError, loadCredential } from "@/lib/ai/credentials";
+import { lerLoginCodexRenovandoSeProxima } from "@/lib/ai/credenciais/login-codex";
+import { PROVEDOR_POR_ASSINATURA } from "@/lib/ai/pontos/provedores";
+import { PROVEDOR_DE_RESERVA_DA_ASSINATURA } from "@/lib/ai/pontos/reserva-da-assinatura";
+import { fetchParaDestinoDaOrganizacao } from "@/lib/automation/destinos-internos-autorizados";
+import { decidirElegibilidadeDaConversaViaSupabase } from "@/lib/ai/elegibilidade/consulta-supabase";
+import { ttlDaAutorizacaoMs } from "@/lib/ai/elegibilidade/gate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit } from "@/lib/audit";
 import type { McpAuthResult } from "@/lib/mcp/auth";
 import type { McpContext } from "@/lib/mcp/types";
 import { computeCostCents } from "./cost";
+// O par (provedor, modelo) é a MESMA régua de todos os caminhos de execução
+// (seam, pontos, mídia, embedding e aqui) — issue #2377.
+import { ParProvedorModeloInvalidoError, validarParProvedorModelo } from "@/lib/ai/par-provedor-modelo";
 import { finalizeRun } from "./finalize";
 import { sendFinalResponse } from "./finalize";
 import { finalizeHandoff } from "./handoff";
 import { loadHistoryWithBudget } from "./history";
 import { mintEphemeralToken, revokeEphemeralToken } from "./mcp_token";
+import { carregarServidorMcpExternoDoTurno } from "@/lib/mcp/servidor-externo/carregar";
 import { pickToolsFromMcp, type RuntimeHandoffSignal } from "./tools";
+import { modulosLigados } from "@/lib/instalacao/modulos";
+import { capacidadesDaOrganizacao } from "@/lib/organizacao/capacidades";
 import { serializeSteps } from "./serialize";
 import {
   CHANNEL_SESSION_REF_COLUMNS,
@@ -64,7 +85,7 @@ export interface RunAgentResult {
   tool_calls?: ReturnType<typeof serializeSteps>;
   tokens_in?: number;
   tokens_out?: number;
-  cost_cents?: number;
+  cost_cents?: number | null;
   latency_ms?: number;
   steps_count?: number;
   abort_reason?: string;
@@ -110,6 +131,7 @@ interface AgentRow {
   id: string;
   organization_id: string;
   created_by: string | null;
+  config?: { mcp_externo_no_atendimento?: unknown } | null;
 }
 
 function buildSentinelRegex(keywords: string[]): RegExp | null {
@@ -131,14 +153,94 @@ function buildSentinelRegex(keywords: string[]): RegExp | null {
  * "Unauthenticated. Configure AI_GATEWAY_API_KEY or use a provider module.",
  * which is exactly what this does — a direct provider module per `provider`.
  */
-function buildModel(provider: string, apiKey: string, modelId: string): LanguageModel {
+/**
+ * Exportada por causa do invariante: este switch é o SEGUNDO lugar que precisa
+ * conhecer um provedor novo (o primeiro é `createDefaultRegistry`, em
+ * `lib/agent-engine/edge/llm/providers.ts`), e ficou três casos atrás dele.
+ * `tests/unit/provedores-x-registry.test.ts` chama esta função para cada id de
+ * `IDS_DE_PROVEDOR` — sem export, a única guarda possível seria procurar
+ * `case "..."` no texto do arquivo, que passa com um switch que compila e não
+ * executa.
+ */
+/**
+ * A chave de plataforma do provedor — as mesmas variáveis que
+ * `llmEdgeConfigFromEnv` lê no turno de produção. Google não tem: o runtime
+ * real também não tem ramo de fallback para ele, e prometer aqui um caminho que
+ * lá não existe faria o ensaio passar e a mensagem real falhar.
+ */
+export function chaveDePlataforma(provider: string): string | null {
+  const nome = { anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", openrouter: "OPENROUTER_API_KEY" }[
+    provider
+  ];
+  if (!nome) return null;
+  const v = (process.env[nome] ?? "").trim();
+  return v === "" ? null : v;
+}
+
+export function buildModel(
+  provider: string,
+  apiKey: string,
+  modelId: string,
+  baseUrl?: string | null,
+): LanguageModel {
+  // O PAR ANTES DE INSTANCIAR (issue #2377): o ensaio ("Teste" na aba do
+  // agente), o runtime do run e o onboarding passam todos por aqui, e este
+  // switch era o único que não conferia nada. Um `agent_versions` gravado com
+  // `{provider: 'openai', model: 'claude-sonnet-5'}` chegava ao
+  // `createOpenAI(...)(claude-sonnet-5)` e só o 400 do provedor dizia o que
+  // acontecia — depois de a tela ter prometido que o ensaio rodava. A recusa
+  // é anterior à instância, com provedor, modelo e motivo na mensagem.
+  const par = validarParProvedorModelo(provider, modelId);
+  if (!par.valido) throw new ParProvedorModeloInvalidoError(provider, modelId, par.motivo);
   switch (provider) {
     case "anthropic":
       return createAnthropic({ apiKey })(modelId);
     case "openai":
       return createOpenAI({ apiKey })(modelId);
+    // A ASSINATURA (#1639): mesma fábrica da OpenAI, API pública de Responses. O
+    // `apiKey` que chega por aqui é o `access_token` do login por PKCE — quem
+    // o monta é o leitor próprio (`lerLoginCodexRenovandoSeProxima`), nunca a
+    // tela de chave. Sem este caso o ensaio responderia `unsupported_provider`
+    // enquanto o worker atenderia a mensagem real.
+    // A lista da conta vem de GET /v1/models, conforme o contrato oficial
+    // Sign in with ChatGPT; a inferência usa a API pública de Responses abaixo.
+    case PROVEDOR_POR_ASSINATURA:
+      return createOpenAI({ apiKey, baseURL: OPENAI_CODEX_ENDPOINT })(modelId);
     case "google":
       return createGoogleGenerativeAI({ apiKey })(modelId);
+    // O ensaio precisa alcançar o mesmo provedor que o turno real alcança.
+    // Sem este caso, o dono que instalou pela opção [1] do instalador publica
+    // o agente, clica em "Teste" para conferir antes de confiar, e recebe
+    // `unsupported_provider` — enquanto a mensagem de verdade seria respondida
+    // normalmente pelo worker. Erro no ensaio lê-se como produto quebrado.
+    case "openrouter":
+      return createOpenAI({
+        apiKey,
+        baseURL: OPENROUTER_ENDPOINT,
+        headers: cabecalhosDeAtribuicaoOpenRouter(),
+      }).chat(modelId); // chat/completions: a OpenRouter não serve /responses para todo modelo (#1130)
+    // Mesma fábrica OpenAI-compatível que o registry de produção usa. Sem este
+    // caso, o dono que publicou em DeepSeek receberia `unsupported_provider` no
+    // ensaio enquanto o worker responderia a mensagem real — ensaio mais
+    // rígido que a produção mente sobre o que está quebrado.
+    case "deepseek":
+      return createOpenAI({ apiKey, baseURL: DEEPSEEK_ENDPOINT })(modelId);
+    // Requesty: roteador OpenAI-compatível, pelo mesmo `.chat()` do registry.
+    case "requesty":
+      return createOpenAI({ apiKey, baseURL: REQUESTY_ENDPOINT }).chat(modelId);
+    // Provedor personalizado (#1642): o endereço vem da credencial, junto da
+    // chave. SEM endereço a chamada é RECUSADA — ensaio que fosse para a
+    // OpenAI com a chave de um gateway privado diria que o produto não
+    // funciona enquanto a produção funcionaria (pelo caminho errado).
+    case "custom":
+      if (!baseUrl) {
+        throw new Error(
+          "custom_provider_sem_base_url: cadastre o endereço (base URL) na credencial do provedor personalizado",
+        );
+      }
+      // Endereço escolhido pela empresa: mesma régua de destino do turno do
+      // agente (`providers.ts`), senão o ensaio seria a porta para a rede interna.
+      return createOpenAI({ apiKey, baseURL: baseUrl, fetch: fetchParaDestinoDaOrganizacao() }).chat(modelId);
     default:
       throw new Error(`unsupported_provider: ${provider}`);
   }
@@ -220,7 +322,15 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     const { data: versionRaw } = await admin
       .from("ai_agent_versions")
       .select(
-        "id, organization_id, agent_id, system_prompt, provider, model, credential_id, tool_ids, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, created_by",
+        // `pipeline_ids` e `knowledge_source_ids` ENTRAM no SELECT.
+        //
+        // A linha 445 lia `version.pipeline_ids` de um objeto que este SELECT
+        // nunca trouxe: o `?? []` do call site absorvia o `undefined` e o escopo
+        // ficava SEMPRE vazio neste runtime — a marcação da tela existia e não
+        // valia aqui. Coluna lida que o SELECT não pede é o defeito que
+        // `agent-version-columns-drift.test.ts` existe para pegar nas cópias
+        // vigiadas; esta não é uma delas.
+        "id, organization_id, agent_id, system_prompt, provider, model, credential_id, tool_ids, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, created_by, pipeline_ids, knowledge_source_ids",
       )
       .eq("id", run.agent_version_id)
       .eq("organization_id", run.organization_id)
@@ -232,23 +342,112 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
 
     const { data: agentRaw } = await admin
       .from("ai_agents")
-      .select("id, organization_id, created_by")
+      .select("id, organization_id, created_by, config")
       .eq("id", run.agent_id)
       .eq("organization_id", run.organization_id)
       .maybeSingle();
     const agent = agentRaw as AgentRow | null;
 
     // 4) Load credential. Plaintext lives only in this scope.
-    if (!version.credential_id) {
-      return await failRun(run, "credential_invalid", "version has no credential", startedAt);
-    }
+    //
+    // Duas origens, na MESMA ordem que `resolveOrgLlmConfig` aplica no turno de
+    // produção: a credencial cadastrada pela tela vence, e na falta dela vale a
+    // chave de plataforma que veio na instalação.
+    //
+    // Sem o segundo caminho, o ensaio recusava com "version has no credential"
+    // justamente na instalação mais comum — a que rodou o `install.sh`, colou a
+    // chave no `.env` e nunca abriu a tela de Credenciais. O agente atendia um
+    // cliente de verdade normalmente, e o botão de testar dizia que não dava.
+    // Ensaio mais rígido que a produção não é cautela: é dizer que está
+    // quebrado o que está funcionando.
     let credentialApiKey: string;
-    try {
-      const credential = await loadCredential(version.credential_id, run.organization_id);
-      credentialApiKey = credential.apiKey;
-    } catch (err) {
-      const reason = err instanceof CredentialUnavailableError ? err.reason : "decrypt_failed";
-      return await failRun(run, `credential_${reason}`, "credential unavailable", startedAt);
+    /** O endereço do provedor personalizado (#1642) — nasce junto da credencial. */
+    let credentialBaseUrl: string | null = null;
+    /**
+     * Quem RESPONDE este turno. É o provider da versão, exceto quando a
+     * assinatura não tem login utilizável e a reserva assume: aí a chave é a
+     * `openai` da empresa, e montar o modelo com o provider da versão mandaria
+     * essa chave de API ao endpoint do Codex — que não a aceita. Chave e
+     * provider andam juntos, como no `resolveOrgLlmConfig` do motor.
+     */
+    let providerDoTurno: string = version.provider;
+    /**
+     * A RESERVA DA ASSINATURA (#1639), na MESMA escada que o resolvedor do
+     * turno usa: a chave `openai` mais recente, ativa e validada da EMPRESA,
+     * e na falta dela a chave de plataforma da instalação. Sem nenhuma, `null`
+     * — e quem chama responde com o `failRun` de sempre.
+     */
+    const reservaDaAssinatura = async () => {
+      try {
+        const { data } = await createAdminClient()
+          .from("ai_provider_credentials")
+          .select("id")
+          .eq("organization_id", run.organization_id)
+          .eq("provider", PROVEDOR_DE_RESERVA_DA_ASSINATURA)
+          .eq("is_active", true)
+          .not("validated_at", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (data?.id) {
+          const credential = await loadCredential(data.id, run.organization_id);
+          return { apiKey: credential.apiKey };
+        }
+      } catch {
+        // Sem linha utilizável (ou `loadCredential` recusou): a escada cai no
+        // `.env`, exatamente como o turno de produção cai.
+      }
+      const daInstalacao = chaveDePlataforma(PROVEDOR_DE_RESERVA_DA_ASSINATURA);
+      return { apiKey: daInstalacao };
+    }
+
+    if (version.provider === PROVEDOR_POR_ASSINATURA) {
+      // A ASSINATURA NÃO É CHAVE: o par de tokens mora na linha de login da
+      // empresa e é lido pelo leitor próprio, que ainda renova antes de
+      // devolver (janela de 8 dias, `userId: null`). `loadCredential` recusa
+      // este provider de propósito — mandaria o JSON dos tokens como chave.
+      //
+      // Sem linha utilizável → a RESERVA, e sem ela o `failRun` de sempre:
+      // nenhum erro novo, só o caminho que já existia.
+      const tokens = await lerLoginCodexRenovandoSeProxima({
+        admin: createAdminClient(),
+        orgId: run.organization_id,
+      });
+      if (tokens) {
+        credentialApiKey = tokens.access_token;
+      } else {
+        const reserva = await reservaDaAssinatura();
+        if (!reserva.apiKey) {
+          return await failRun(
+            run,
+            "credential_invalid",
+            `sem linha de login nem chave de reserva para ${version.provider}: conecte a assinatura do ChatGPT em IA › Credenciais`,
+            startedAt,
+          );
+        }
+        credentialApiKey = reserva.apiKey;
+        providerDoTurno = PROVEDOR_DE_RESERVA_DA_ASSINATURA;
+      }
+    } else if (version.credential_id) {
+      try {
+        const credential = await loadCredential(version.credential_id, run.organization_id);
+        credentialApiKey = credential.apiKey;
+        credentialBaseUrl = credential.baseUrl;
+      } catch (err) {
+        const reason = err instanceof CredentialUnavailableError ? err.reason : "decrypt_failed";
+        return await failRun(run, `credential_${reason}`, "credential unavailable", startedAt);
+      }
+    } else {
+      const daInstalacao = chaveDePlataforma(version.provider);
+      if (!daInstalacao) {
+        return await failRun(
+          run,
+          "credential_invalid",
+          `sem chave para ${version.provider}: cadastre em IA › Credenciais ou configure a chave desta instalação`,
+          startedAt,
+        );
+      }
+      credentialApiKey = daInstalacao;
     }
 
     // 5) Resolve inbound text + dispatch context.
@@ -275,7 +474,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       const { data: convRaw } = await admin
         .from("conversations")
         .select(
-          `id, group_chat_id, is_group, contacts:contact_id(phone_number, wa_identity), channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS})`,
+          `id, group_chat_id, is_group, contacts:contact_id(phone_number, wa_identity, wa_lid), channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS})`,
         )
         .eq("id", run.conversation_id)
         .eq("organization_id", run.organization_id)
@@ -284,7 +483,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         id: string;
         group_chat_id: string | null;
         is_group: boolean;
-        contacts: { phone_number: string | null; wa_identity: string | null } | null;
+        contacts: { phone_number: string | null; wa_identity: string | null; wa_lid: string | null } | null;
         channel_sessions: ChannelSessionRef | null;
       } | null;
       if (conv) {
@@ -296,7 +495,32 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
           groupChatId: conv.group_chat_id,
           phoneNumber: conv.contacts?.phone_number,
           waIdentity: conv.contacts?.wa_identity,
+          waLid: conv.contacts?.wa_lid,
         });
+      }
+
+      // GATE DE ELEGIBILIDADE — este runtime legado (@deprecated, hoje só o
+      // dispatcher aposentado o alcança com envio real) TAMBÉM não pode
+      // responder uma conversa que uma origem elegível não autorizou. Mesma
+      // regra pura do drain/turno. Fail-closed: erro de leitura → falha o run
+      // antes de qualquer custo de LLM.
+      try {
+        const elegib = await decidirElegibilidadeDaConversaViaSupabase(admin, {
+          organizationId: run.organization_id,
+          conversationId: run.conversation_id,
+          agora: new Date(),
+          ttlMs: ttlDaAutorizacaoMs(process.env),
+        });
+        if (elegib !== null && !elegib.permite) {
+          return await failRun(run, "nao_elegivel_para_ia", `elegibilidade: ${elegib.motivo}`, startedAt);
+        }
+      } catch (err) {
+        return await failRun(
+          run,
+          "nao_elegivel_para_ia",
+          `elegibilidade indeterminada: ${err instanceof Error ? err.message.slice(0, 120) : "erro"}`,
+          startedAt,
+        );
       }
     }
 
@@ -327,6 +551,26 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         steps_count: 0,
         would_send_to: { session: waSessionName, chat_id: chatId },
       };
+    }
+
+    // O contato do turno sai da CONVERSA quando a linha do run não o traz: o
+    // dispatcher antigo gravava o contato da mensagem, que pode vir vazio com a
+    // conversa tendo dono. As ferramentas restringem a leitura por ele
+    // (`contatoDoTurno`); um turno de conversa sem ele lê como integrador.
+    // Sem contato nenhum, o turno não roda — a mesma recusa do motor
+    // (`turn_without_contact` em `runAgentTurn`).
+    let contatoDoTurno = run.contact_id;
+    if (!contatoDoTurno && run.conversation_id) {
+      const { data: dono } = await admin
+        .from("conversations")
+        .select("contact_id")
+        .eq("id", run.conversation_id)
+        .eq("organization_id", run.organization_id)
+        .maybeSingle();
+      contatoDoTurno = (dono?.contact_id as string | null | undefined) ?? null;
+      if (!contatoDoTurno) {
+        return await failRun(run, "turn_without_contact", "conversation has no contact", startedAt);
+      }
     }
 
     // 7) Mint ephemeral token + build MCP context.
@@ -372,13 +616,44 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       supabase: admin,
     };
     const handoffSignal: RuntimeHandoffSignal = { triggered: false };
+    // #2147 — servidor MCP externo que o dono da instalação registrou. `null`
+    // SEM REDE quando a versão não escolheu nenhuma remota (item 7) ou o TURNO
+    // TEM CONTATO sem a opção `mcp_externo_no_atendimento` do agente (item 8,
+    // escolha (b)). Ligada, o servidor recebe a identidade do contato em
+    // cabeçalho (ver `carregar.ts`). `null` também sem registro ou com o
+    // servidor calado.
+    const servidorExterno = await carregarServidorMcpExternoDoTurno(
+      admin,
+      run.organization_id,
+      version.tool_ids ?? [],
+      {
+        ...(contatoDoTurno
+          ? {
+              contatoDoTurno,
+              ...(agent?.config?.mcp_externo_no_atendimento === true
+                ? {
+                    noAtendimento: true,
+                    ...(run.conversation_id ? { conversaDoTurno: run.conversation_id } : {}),
+                  }
+                : {}),
+            }
+          : {}),
+      },
+    );
     const tools = pickToolsFromMcp({
       supabase: admin,
       ctx,
       auth,
       toolIds: version.tool_ids ?? [],
       handoffToolEnabled: version.handoff_tool_enabled,
+      proposalAiDraftEnabled: (version as { proposal_ai_draft_enabled?: boolean }).proposal_ai_draft_enabled ?? true,
+      // `?? []` — o clone sem a coluna 0125 nasce FECHADO.
+      pipelineIds: (version as { pipeline_ids?: string[] }).pipeline_ids ?? [],
+      modulosLigados: await modulosLigados(admin),
+      capacidadesLigadas: await capacidadesDaOrganizacao(admin, run.organization_id),
       handoffSignal,
+      ...(servidorExterno ? { servidorMcpExterno: servidorExterno } : {}),
+      ...(contatoDoTurno ? { contatoDoTurno } : {}),
     });
 
     // 8) Load history with budget.
@@ -393,7 +668,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       : [];
 
     // 9) Build LM directly against the provider (BYOK credential — see buildModel doc).
-    const model = buildModel(version.provider, credentialApiKey, version.model);
+    const model = buildModel(providerDoTurno, credentialApiKey, version.model, credentialBaseUrl);
 
     // 10) Cost/token guard. Fires BEFORE the next step is taken.
     let abortReason: string | null = null;
@@ -409,12 +684,16 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         return true;
       }
       const cost = await computeCostCents({
-        provider: version.provider,
+        provider: providerDoTurno,
         model: version.model,
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
       });
-      if (cost > version.cost_budget_cents) {
+      // Preço desconhecido (`null`) não estoura o limite por chamada: sem
+      // número não se compara contra o teto — e também não é contado como 0
+      // (grátis), o custo segue `null` para quem reporta. Semântica do seam
+      // `pricing.ts`: coalesce(null, 0) no somatório.
+      if (cost !== null && cost > version.cost_budget_cents) {
         abortReason = "cost_budget_exceeded";
         return true;
       }
@@ -427,18 +706,37 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       { role: "user" as const, content: inboundBody },
     ];
 
-    const result = await generateText({
-      model,
-      system: version.system_prompt,
-      messages,
-      tools,
-      stopWhen: [stepCountIs(version.max_steps), budgetGuard],
-    });
+    const result =
+      providerDoTurno === PROVEDOR_POR_ASSINATURA
+        ? await (async () => {
+            const streamed = streamText({
+              model,
+              system: version.system_prompt,
+              messages,
+              tools,
+              stopWhen: [stepCountIs(version.max_steps), budgetGuard],
+              providerOptions: { openai: { store: false } },
+            });
+            const [text, steps, usage, finishReason] = await Promise.all([
+              streamed.text,
+              streamed.steps,
+              streamed.usage,
+              streamed.finishReason,
+            ]);
+            return { text, steps, usage, finishReason };
+          })()
+        : await generateText({
+            model,
+            system: version.system_prompt,
+            messages,
+            tools,
+            stopWhen: [stepCountIs(version.max_steps), budgetGuard],
+          });
 
     // 12) Aggregate metrics.
     const usage = totalUsage(result.steps as Array<{ usage?: { inputTokens?: number; outputTokens?: number } }>);
     const cost = await computeCostCents({
-      provider: version.provider,
+      provider: providerDoTurno,
       model: version.model,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
@@ -580,7 +878,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     return await failRun(run, "runtime_error", message, startedAt);
   } finally {
     if (ephemeralTokenId) {
-      await revokeEphemeralToken(ephemeralTokenId).catch(() => {
+      await revokeEphemeralToken(ephemeralTokenId, run.organization_id).catch(() => {
         // Token TTL=300s; lingering revoke failure is non-critical.
       });
     }

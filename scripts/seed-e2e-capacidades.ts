@@ -21,6 +21,7 @@
  * Run: npx tsx scripts/seed-e2e-capacidades.ts
  */
 import { createClient } from "@supabase/supabase-js";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { anunciarDestino, credenciaisSupabaseDeTeste } from "./lib/env-de-teste";
@@ -53,9 +54,23 @@ function lerCreds(): Creds {
 async function main(): Promise<void> {
   const creds = lerCreds();
   const orgId = creds.org_id;
-  const fixtures = creds.followup_agent_fixtures;
+  let fixtures = creds.followup_agent_fixtures;
   if (!fixtures) {
-    throw new Error("Rode antes: npx tsx scripts/seed-e2e-followup-agent.ts");
+    // RODA o pré-requisito em vez de mandar rodar. As fixtures moram no mesmo
+    // `.e2e-creds.json` que `seed-e2e-credentials.ts` reescrevia por inteiro (hoje
+    // ele preserva os blocos quando a org é a mesma, mas um banco recriado os descarta) —
+    // e ele é chamado de dentro do login quando o fator TOTP foi rotacionado
+    // por outra sessão. O resultado é este bloco sumir no meio de uma execução
+    // do Playwright, onde ninguém pode "rodar antes" coisa nenhuma: a bateria
+    // morre citando um comando que ela mesma sabia executar.
+    execFileSync("npx", ["tsx", "scripts/seed-e2e-followup-agent.ts"], { stdio: "inherit" });
+    fixtures = lerCreds().followup_agent_fixtures;
+  }
+  if (!fixtures) {
+    throw new Error(
+      "`followup_agent_fixtures` continua ausente mesmo depois de rodar " +
+        "seed-e2e-followup-agent.ts — o problema não é a ordem dos seeds.",
+    );
   }
 
   // 1) Agente + versão rascunho, idempotentes pelo nome.
@@ -93,7 +108,45 @@ async function main(): Promise<void> {
     .limit(1)
     .maybeSingle();
 
-  const TOOLS_LIGADAS = ["crm_get_lead", "crm_move_lead_stage", "crm_list_leads"];
+  const TOOLS_LIGADAS = [
+    // As três originais primeiro: o caso do teto desliga `TOOLS_DO_SEED[2]` para
+    // liberar exatamente uma vaga, e a ordem é o que mantém esse índice válido.
+    "crm_get_lead",
+    "crm_move_lead_stage",
+    "crm_list_leads",
+    // ⚠️ AS OITO ABAIXO NÃO SÃO ENFEITE: elas existem para o cenário ESTOURAR.
+    //
+    // A jornada do teto (issue #162) só existe se a soma passar do teto: eram 3
+    // do seed + 18 de "Atender" = 21 contra teto 20, e a tela recusava dizendo
+    // "faltam 1 vaga". Com teto 25 essas mesmas 21 passam, a recusa nunca acontece
+    // e o caso vira um clique que sempre dá certo — verde sem medir nada.
+    //
+    // A cada subida do teto a aritmética ameaçava caber de novo. Com teto 27
+    // (a proposta comercial entrou no `vender` e o teto subiu com ela) as oito
+    // reproduzem a MESMA conta: com os 3 do seed, 11 + 17 = 28 > 27, recusa por
+    // 1 vaga; desligar uma das oito deixa 10 + 17 = 27, que é o teto exato e
+    // passa. O que segura o caso é essa soma estourar por exatamente UMA vaga —
+    // estourar por 2 muda o texto da tela e o caso morre, caber no teto faz a
+    // recusa sumir e o caso virar verde sem medir nada.
+    //
+    // Os 17 são o pacote "Atender" DEPOIS da #528, e foi ela que mudou o número:
+    // a crítica que o pacote contava (o envio de WhatsApp, que o motor descarta
+    // em todo turno) deixou de ser oferecida, e com ela saiu uma vaga da conta.
+    //
+    // As escolhidas ficam FORA do pacote "Atender" de propósito — se alguma
+    // estivesse dentro, a união seria menor que a soma e a conta acima não valeria.
+    // Quatro são a família de agenda, que é o assunto do defeito que subiu o teto
+    // pela primeira vez; as quatro últimas são leitura pura de outros pacotes,
+    // para a aritmética continuar estourando a cada subida.
+    "crm_find_free_slots",
+    "crm_list_appointments",
+    "crm_book_appointment",
+    "crm_reschedule_appointment",
+    "crm_list_pipelines",
+    "crm_list_event_types",
+    "crm_list_human_cases",
+    "crm_list_knowledge_sources",
+  ];
 
   // REPÕE TODAS AS VERSÕES DRAFT DESTE AGENTE, não só a de maior número.
   //
@@ -108,6 +161,10 @@ async function main(): Promise<void> {
       .from("ai_agent_versions")
       .update({
         tool_ids: TOOLS_LIGADAS,
+        // Coluna da 0125, e o mesmo motivo do `tool_ids`: a tela do escopo de
+        // funis SALVA aqui, então sem repor, a segunda execução acha o funil
+        // que a primeira marcou e o caso "nasce fechada" passa a medir sujeira.
+        pipeline_ids: [],
         created_at: new Date(Date.now() - 60 * 86_400_000).toISOString(),
       })
       .eq("organization_id", orgId)
@@ -125,6 +182,7 @@ async function main(): Promise<void> {
       .from("ai_agent_versions")
       .update({
         tool_ids: TOOLS_LIGADAS,
+        pipeline_ids: [],
         // Configuração DATADA de 60 dias atrás de propósito. O painel distingue
         // "ligada agora" (não pede decisão) de "ligada há tempo e nunca usada"
         // (pede), e uma versão criada neste instante só alcançaria o primeiro
@@ -167,8 +225,10 @@ async function main(): Promise<void> {
     .eq("organization_id", orgId)
     .eq("agent_id", agentId);
   const idsAntigos = (runsAntigos ?? []).map((r) => r.id as string);
+  // Só os runs saem. `api_audit_log` não aceita DELETE de service_role (migration
+  // 0258), e não precisa: `fn_agent_tool_usage` conta a auditoria pelo JOIN com
+  // `ai_agent_runs`, então a linha cujo run foi apagado deixa de contar na tela.
   if (idsAntigos.length > 0) {
-    await admin.from("api_audit_log").delete().in("request_id", idsAntigos);
     await admin.from("ai_agent_runs").delete().in("id", idsAntigos);
   }
 

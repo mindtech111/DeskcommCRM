@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useReactivateTenant } from "@/hooks/useReactivateTenant";
+import { useT } from "@/hooks/i18n/useT";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -29,13 +30,25 @@ interface ReactivateDialogProps {
   open: boolean;
   onClose: () => void;
   organizationId: string;
+  /**
+   * O nome do tenant, para o diálogo dizer QUEM volta a ter acesso. Mesmo
+   * motivo do SuspenderDialog (#2778): a reativação sai da listagem, em um
+   * clique, e o alvo tem de estar escrito. Opcional pela mesma razão.
+   */
+  displayName?: string;
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function ReactivateDialog({ open, onClose, organizationId }: ReactivateDialogProps) {
+export function ReactivateDialog({
+  open,
+  onClose,
+  organizationId,
+  displayName,
+}: ReactivateDialogProps) {
+  const t = useT();
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -46,7 +59,7 @@ export function ReactivateDialog({ open, onClose, organizationId }: ReactivateDi
   function handleConfirm() {
     const parsed = reasonSchema.safeParse(reason);
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Razão inválida");
+      setError(t(parsed.error.issues[0]?.message ?? "Razão inválida"));
       return;
     }
     reactivate.mutate(
@@ -71,23 +84,28 @@ export function ReactivateDialog({ open, onClose, organizationId }: ReactivateDi
     <AlertDialog open={open} onOpenChange={(open) => { if (!open) handleClose(); }}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Reativar tenant</AlertDialogTitle>
+          <AlertDialogTitle>
+            {t("Reativar tenant")}
+            {/* O alvo da reativação, escrito na linha de cima (#2778). */}
+            {displayName ? <span className="font-normal"> {displayName}</span> : null}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            A reativação restabelece o acesso dos usuários deste tenant à plataforma.
-            Informe o motivo da reativação para o registro de auditoria.
+            {t(
+              "A reativação restabelece o acesso dos usuários deste tenant à plataforma. Informe o motivo da reativação para o registro de auditoria.",
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
         <div className="space-y-2 py-2">
           <Label htmlFor="reactivate-reason">
-            Motivo da reativação{" "}
+            {t("Motivo da reativação")}{" "}
             <span className="text-muted-foreground text-xs font-normal">
               ({reason.length}/500)
             </span>
           </Label>
           <Textarea
             id="reactivate-reason"
-            placeholder="Descreva o motivo da reativação (mínimo 10 caracteres)..."
+            placeholder={t("Descreva o motivo da reativação (mínimo 10 caracteres)...")}
             value={reason}
             onChange={(e) => {
               setReason(e.target.value);
@@ -105,13 +123,13 @@ export function ReactivateDialog({ open, onClose, organizationId }: ReactivateDi
         </div>
 
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={handleClose}>Cancelar</AlertDialogCancel>
+          <AlertDialogCancel onClick={handleClose}>{t("Cancelar")}</AlertDialogCancel>
           <Button
             variant="default"
             onClick={handleConfirm}
             disabled={!isValid || reactivate.isPending}
           >
-            {reactivate.isPending ? "Reativando..." : "Confirmar reativação"}
+            {reactivate.isPending ? t("Reativando...") : t("Confirmar reativação")}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

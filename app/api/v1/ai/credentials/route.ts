@@ -1,3 +1,4 @@
+import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * GET  /api/v1/ai/credentials — lista credentials da org ativa (manager+).
  *                                Lê da view `ai_provider_credentials_safe`,
@@ -14,22 +15,35 @@ import { type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ok, fail } from "@/lib/api/wrappers";
-import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
-import { bufToBytea, encryptKey } from "@/lib/crypto/aes_gcm";
-import { validateProviderKey, type Provider } from "@/lib/ai/provider-validators";
+import { guardarCredencial, MENSAGEM_ASSINATURA_SO_PELO_LOGIN } from "@/lib/ai/credenciais/guardar";
+import { IDS_COM_CHAVE } from "@/lib/ai/pontos/provedores";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
 const SAFE_COLUMNS =
-  "id, organization_id, provider, label, api_key_last4, validated_at, validation_error, models_available, is_active, created_by, created_at, updated_at";
+  "id, organization_id, provider, label, api_key_last4, base_url, validated_at, validation_error, models_available, is_active, created_by, created_at, updated_at";
 
 const createSchema = z.object({
-  provider: z.enum(["anthropic", "openai", "google"]),
+  // Derivado de `lib/ai/pontos/provedores.ts`, a lista única desde a migration
+  // 0127. Enquanto era uma cópia à mão, o banco aceitava OpenRouter e ESTA rota
+  // recusava com 422 — o operador via a tela de Provedores oferecer OpenRouter
+  // e não tinha onde cadastrar a chave. A UNIÃO, e não só quem conversa: a
+  // chave do Jev (que só decide) se cadastra por aqui também.
+  provider: z.enum(IDS_COM_CHAVE),
   label: z.string().trim().min(1).max(80),
   api_key: z.string().trim().min(8).max(2048),
+  /**
+   * Só o provedor personalizado (#1642): o endereço da API compatível com a
+   * OpenAI que vai RECEBER a chave. A obrigatoriedade (e a recusa para os
+   * nativos) é checada depois do parse, porque aí a resposta é a frase que
+   * diz o que falta — `z.string().min(1)` devolveria "Campos inválidos.",
+   * que manda a pessoa adivinhar qual campo.
+   */
+  base_url: z.string().trim().max(500).optional(),
 });
 
 export async function GET(): Promise<Response> {
@@ -52,114 +66,101 @@ export async function GET(): Promise<Response> {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("admin", { requestId, resource: "ai_credentials" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
 
   let rawBody: unknown;
   try {
     rawBody = await req.json();
   } catch {
-    return fail("invalid_request", "Body JSON inválido.", 400, { requestId });
+    return fail("invalid_request", t("Body JSON inválido."), 400, { requestId });
   }
 
   const parsed = createSchema.safeParse(rawBody);
   if (!parsed.success) {
-    return fail("validation_failed", "Campos inválidos.", 422, {
+    return fail("validation_failed", t("Campos inválidos."), 422, {
       requestId,
       details: parsed.error.flatten(),
     });
   }
   const input = parsed.data;
-  const provider = input.provider as Provider;
+  const provider = input.provider;
 
-  let encrypted;
-  try {
-    encrypted = encryptKey(input.api_key);
-  } catch (err) {
-    console.error("[ai.credentials] encrypt failed", err);
-    return fail("internal_error", "Erro ao cifrar credential.", 500, { requestId });
+  // Barra final removida antes de gravar, como `lib/webhooks/url-publica.ts`
+  // decidiu para o mesmo formato: `base + "/" + caminho` viraria `.../v1//models`.
+  const baseUrl = (input.base_url ?? "").trim().replace(/\/+$/, "");
+  if (provider === "custom" && baseUrl === "") {
+    return fail(
+      "validation_failed",
+      t("Informe o endereço (base URL) do provedor personalizado."),
+      422,
+      { requestId },
+    );
+  }
+  if (baseUrl !== "" && !/^https?:\/\//i.test(baseUrl)) {
+    return fail(
+      "validation_failed",
+      t("O endereço (base URL) precisa começar com http:// ou https://."),
+      422,
+      { requestId },
+    );
+  }
+  // Os quatro nativos continuam 100% iguais: o endpoint deles é intrínseco, e
+  // gravar endereço ao lado de uma chave da OpenAI seria configuração que o
+  // runtime lê e ninguém preencheu pela tela. Quem quer endpoint próprio num
+  // nativo aponta o BINDING no painel de provedores — caminho que já existe.
+  if (provider !== "custom" && baseUrl !== "") {
+    return fail(
+      "validation_failed",
+      t("Só o provedor personalizado aceita um endereço (base URL) próprio."),
+      422,
+      { requestId },
+    );
   }
 
-  const admin = createAdminClient();
-  const { data: created, error: insErr } = await admin
-    .from("ai_provider_credentials")
-    .insert({
-      organization_id: activeOrg.orgId,
-      provider,
-      label: input.label,
-      api_key_encrypted: bufToBytea(encrypted.ciphertext),
-      api_key_iv: bufToBytea(encrypted.iv),
-      api_key_tag: bufToBytea(encrypted.tag),
-      api_key_last4: encrypted.last4,
-      is_active: true,
-      created_by: authUser.id,
-    })
-    .select(SAFE_COLUMNS)
-    .single();
+  // O miolo — cifrar, gravar, auditar e validar em segundo plano — mora em
+  // `lib/ai/credenciais/guardar.ts` porque o wizard precisa exatamente do mesmo
+  // e cada item dessa lista tem consequência de segurança se as duas cópias
+  // divergirem. Aqui ficam auth, formato do erro e o `requestId`.
+  const guardado = await guardarCredencial({
+    admin: createAdminClient(),
+    orgId: activeOrg.orgId,
+    userId: authUser.id,
+    provider,
+    label: input.label,
+    apiKey: input.api_key,
+    baseUrl: baseUrl === "" ? undefined : baseUrl,
+    requestId,
+  });
 
-  if (insErr || !created) {
-    if (insErr?.code === "23505") {
+  if (!guardado.ok) {
+    if (guardado.motivo === "label_em_uso") {
       return fail(
         "label_already_used",
-        "Já existe uma credential com este label e provider.",
+        t("Já existe uma chave deste provedor com este nome. Dê outro nome a ela."),
         409,
         { requestId },
       );
     }
+    if (guardado.motivo === "assinatura_so_pelo_login") {
+      return fail("validation_failed", t(MENSAGEM_ASSINATURA_SO_PELO_LOGIN), 422, { requestId });
+    }
     return fail("internal_error", "Erro ao criar credential.", 500, { requestId });
   }
 
-  await audit({
-    action: "ai.credential_created",
-    actorUserId: authUser.id,
-    organizationId: activeOrg.orgId,
-    resourceType: "ai_provider_credential",
-    resourceId: created.id,
-    requestId,
-    metadata: {
-      provider,
-      label: input.label,
-      last4: encrypted.last4,
-    },
-  });
-
-  // Validação async fire-and-forget. Plaintext só vive até o callback resolver
-  // — nunca persistido nem logado.
-  void runAsyncValidation(created.id, activeOrg.orgId, provider, input.api_key);
+  // A resposta continua saindo da view segura: ela é quem garante que nenhum
+  // campo cifrado atravesse a fronteira HTTP.
+  const { data: created } = await createAdminClient()
+    .from("ai_provider_credentials_safe")
+    .select(SAFE_COLUMNS)
+    .eq("id", guardado.id)
+    .single();
 
   return ok(created, { status: 201, requestId });
-}
-
-async function runAsyncValidation(
-  credentialId: string,
-  organizationId: string,
-  provider: Provider,
-  apiKey: string,
-): Promise<void> {
-  try {
-    const result = await validateProviderKey(provider, apiKey);
-    const admin = createAdminClient();
-    const patch = result.ok
-      ? {
-          validated_at: new Date().toISOString(),
-          validation_error: null,
-          models_available: result.models,
-        }
-      : {
-          validated_at: null,
-          validation_error: result.error,
-        };
-    const { error } = await admin
-      .from("ai_provider_credentials")
-      .update(patch)
-      .eq("id", credentialId)
-      .eq("organization_id", organizationId);
-    if (error) {
-      console.error("[ai.credentials] async validation persist failed", error.message);
-    }
-  } catch (err) {
-    console.error("[ai.credentials] async validation crashed", err);
-  }
 }

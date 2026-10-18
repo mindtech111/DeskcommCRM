@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { useT } from "@/hooks/i18n/useT";
 
 import { acceptWelcome } from "@/app/actions/onboarding/acceptWelcome";
 import { Button } from "@/components/ui/button";
@@ -14,27 +15,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FUSO_PADRAO, FUSOS_DO_ONBOARDING } from "@/lib/tempo/fusos";
 
-const TIMEZONES = [
-  "America/Sao_Paulo",
-  "America/Recife",
-  "America/Manaus",
-  "America/Cuiaba",
-  "America/Belem",
-  "America/Fortaleza",
-  "America/Bahia",
-  "America/Rio_Branco",
-  "America/Argentina/Buenos_Aires",
-  "America/New_York",
-  "America/Los_Angeles",
-  "Europe/Lisbon",
-  "Europe/Madrid",
-  "UTC",
-];
 
-export function WelcomeForm({ defaultOrgName }: { defaultOrgName: string }) {
+export function WelcomeForm({
+  defaultOrgName,
+  orgId,
+}: {
+  defaultOrgName: string;
+  orgId: string;
+}) {
+  const t = useT();
   const [displayName, setDisplayName] = useState(defaultOrgName);
-  const [timezone, setTimezone] = useState("America/Sao_Paulo");
+  const [oQueFaz, setOQueFaz] = useState("");
+  const [timezone, setTimezone] = useState(FUSO_PADRAO);
   const [accepted, setAccepted] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -43,7 +37,7 @@ export function WelcomeForm({ defaultOrgName }: { defaultOrgName: string }) {
       className="space-y-5 rounded-lg border bg-background p-6"
       action={(formData) => {
         if (!accepted) {
-          toast.error("Aceite os termos para continuar.");
+          toast.error(t("Aceite os termos para continuar."));
           return;
         }
         startTransition(async () => {
@@ -55,7 +49,7 @@ export function WelcomeForm({ defaultOrgName }: { defaultOrgName: string }) {
       }}
     >
       <div className="space-y-2">
-        <Label htmlFor="display_name">Nome da operação</Label>
+        <Label htmlFor="display_name">{t("Como se chama o seu negócio?")}</Label>
         <Input
           id="display_name"
           name="display_name"
@@ -66,25 +60,56 @@ export function WelcomeForm({ defaultOrgName }: { defaultOrgName: string }) {
           required
         />
         <p className="text-xs text-muted-foreground">
-          Como sua loja aparece para o time e nos painéis.
+          {t("É o nome que aparece para o seu time e nos relatórios. Pode ser clínica, loja, escritório — o que for seu.")}
+        </p>
+      </div>
+
+      {/*
+        A pergunta que faltava no produto inteiro. Sem ela, o funcionário nasce
+        se apresentando como atendente de uma "loja online" — era o que os três
+        modelos de prompt diziam — e o quadro de clientes nasce com as colunas
+        de e-commerce que o gatilho semeia. Os dois defeitos têm a mesma origem:
+        uma instalação que nunca pergunta em que ramo entrou.
+      */}
+      <div className="space-y-2">
+        <Label htmlFor="o_que_faz">{t("O que vocês fazem?")}</Label>
+        <Input
+          id="o_que_faz"
+          name="o_que_faz"
+          value={oQueFaz}
+          onChange={(e) => setOQueFaz(e.target.value)}
+          maxLength={280}
+          placeholder={t("Ex.: clínica odontológica, ou venda de roupa fitness pelo WhatsApp")}
+        />
+        <p className="text-xs text-muted-foreground">
+          {t(
+            "Uma linha basta. É com isso que seu funcionário aprende com quem ele está falando — e que a gente monta o quadro de clientes do seu jeito.",
+          )}
         </p>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="timezone">Fuso horário</Label>
+        <Label htmlFor="timezone">{t("Onde você atende")}</Label>
         <Select value={timezone} onValueChange={setTimezone}>
           <SelectTrigger id="timezone">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {TIMEZONES.map((tz) => (
-              <SelectItem key={tz} value={tz}>
-                {tz}
+            {FUSOS_DO_ONBOARDING.map((f) => (
+              <SelectItem key={f.id} value={f.id}>
+                {t(f.cidade)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <input type="hidden" name="timezone" value={timezone} />
+        {/* A org para a qual ESTA aba foi aberta. No submit, o server action
+            resolve por ela (validada como membership), não pela org ativa do
+            momento — que outra aba pode ter trocado. */}
+        <input type="hidden" name="organization_id" value={orgId} />
+        <p className="text-xs text-muted-foreground">
+          {t("Decide o horário em que seu funcionário pode falar com clientes.")}
+        </p>
       </div>
 
       <label className="flex items-start gap-2 text-sm">
@@ -96,21 +121,21 @@ export function WelcomeForm({ defaultOrgName }: { defaultOrgName: string }) {
           required
         />
         <span>
-          Li e aceito os{" "}
+          {t("Li e aceito os")}{" "}
           <a className="underline" href="/legal/terms" target="_blank" rel="noreferrer">
-            Termos de Uso
+            {t("Termos de Uso")}
           </a>{" "}
-          e a{" "}
+          {t("e a")}{" "}
           <a className="underline" href="/legal/privacy" target="_blank" rel="noreferrer">
-            Política de Privacidade
+            {t("Política de Privacidade")}
           </a>
           .
         </span>
       </label>
 
-      <div className="flex justify-end">
-        <Button type="submit" disabled={pending || !accepted}>
-          {pending ? "Salvando..." : "Continuar"}
+      <div className="flex sm:justify-end">
+        <Button type="submit" disabled={pending || !accepted} className="w-full sm:w-auto">
+          {pending ? t("Salvando...") : t("Continuar")}
         </Button>
       </div>
     </form>

@@ -21,10 +21,11 @@
  */
 import { execFileSync } from "node:child_process";
 
-import { test, expect, type Browser, type Page } from "@playwright/test";
+import { test, expect, type Browser, type Page } from "./helpers/test";
 
 import { loginComoAdmin, lerCreds, type CredsE2E } from "./helpers/login-admin";
 
+import { CONFERENCIAS_DE_SAIDA, CONFERENCIA_DE_ENTRADA } from "@/lib/ai/guardrails/lista-de-conferencia";
 let creds: CredsE2E = lerCreds();
 
 test.use({ locale: "pt-BR" });
@@ -98,7 +99,7 @@ async function abrirAbaDoOperador(): Promise<void> {
 }
 
 test.describe("A aba do papel que organiza o sistema", () => {
-  test("os dois papéis aparecem, e os nomes dizem o que cada um faz", async () => {
+  test("os TRÊS papéis aparecem, e os nomes dizem o que cada um faz", async () => {
     await pagina.goto(`/app/ai/agents/${agenteDeTeste()}`);
 
     // Os rótulos são o contrato com quem configura. "Conversador"/"Operador" é
@@ -106,6 +107,82 @@ test.describe("A aba do papel que organiza o sistema", () => {
     // e em quem mantém a casa em ordem.
     await expect(pagina.getByTestId("papel-conversa")).toHaveText(/conversa com o cliente/i);
     await expect(pagina.getByTestId("papel-operacao")).toHaveText(/organiza o sistema/i);
+    // O TERCEIRO. O épico se chama "os três papéis" e foi entregue com dois na
+    // tela — a cadeia de conferências rodava e ninguém que configura sabia.
+    await expect(pagina.getByTestId("papel-seguranca")).toHaveText(/confere antes de enviar/i);
+  });
+
+  test("o papel que confere mostra a lista inteira, aberta, e sem interruptor decorativo", async () => {
+    await pagina.goto(`/app/ai/agents/${agenteDeTeste()}`);
+    await pagina.getByTestId("papel-seguranca").click();
+
+    const painel = pagina.getByTestId("painel-de-seguranca");
+    await expect(painel).toBeVisible();
+
+    // MEDIDA POR FERRAMENTA, não a olho: o defeito que este painel substitui era
+    // um `<details>` FECHADO dentro do resultado de um teste — presente no DOM e
+    // invisível na prática. Altura real > 0 é o que separa "existe" de "aparece".
+    const altura = await painel.evaluate((el) => el.getBoundingClientRect().height);
+    expect(altura, "o painel está no DOM e não ocupa espaço na tela").toBeGreaterThan(100);
+
+    // Todas as conferências, não uma amostra.
+    //
+    // O NÚMERO É DERIVADO, NÃO ESCRITO. O painel renderiza as conferências de
+    // saída MAIS a de entrada, que é uma só e mora fora do array porque roda
+    // antes das outras, sobre o que CHEGA — `PainelDeSeguranca.tsx` a monta
+    // assim, e esta é a mesma expressão que `painel-de-seguranca.test.tsx` usa.
+    //
+    // Era o literal `12` até este conserto, e o literal envelheceu em uma semana:
+    // o PR #420 (@automatikpg-ux) acrescentou `agenda_stall`, atualizou o unit —
+    // que reprova na hora — e não tinha como saber deste, que só reprova no
+    // `e2e`, minutos depois e noutro job. A `main` ficou vermelha por isso.
+    // Número escrito à mão envelhece calado; a expressão acompanha a lista.
+    const itens = painel.locator('[data-testid^="item-conferencia-"]');
+    await expect(itens).toHaveCount([...CONFERENCIAS_DE_SAIDA, CONFERENCIA_DE_ENTRADA].length);
+
+    // Um interruptor de CONFERÊNCIA por item que tem ESCOLHA na lista — e só
+    // esses. O número também é DERIVADO: era o literal `2` (as duas camadas que
+    // consultam modelo e custam por mensagem), e o #2321 (@hampikamayuq) trouxe
+    // a terceira escolha legítima, a afirmação clínica, que não custa nada e vem
+    // DESLIGADA — ligar acrescenta proteção, não tira. O literal reprovou no
+    // e2e, noutro job, como o `12` dos itens já tinha reprovado (#420).
+    //
+    // A guarda que o literal fazia continua, agora na lista: um item com
+    // `escolha: null` é o que "não se desliga", e a tela não pode desenhar
+    // interruptor nele. E as camadas PAGAS seguem sendo exatamente as que se
+    // declaram `consultaModelo` — quem quiser oferecer desligar uma proteção
+    // fixa tem de mudar a lista, à vista, em vez de só o número daqui.
+    const comEscolha = [...CONFERENCIAS_DE_SAIDA, CONFERENCIA_DE_ENTRADA].filter((c) => c.escolha !== null);
+    expect(
+      comEscolha.filter((c) => c.escolha?.consultaModelo).length,
+      "as camadas pagas (que consultam modelo) continuam sendo duas",
+    ).toBe(2);
+    await expect(painel.locator('[data-testid^="conferencia-"][role="switch"]')).toHaveCount(comEscolha.length);
+
+    // E a contagem TOTAL continua cercada, por categoria em vez de por número.
+    // Ancorar só nas conferências abriria a porta que este caso existe para
+    // fechar: um interruptor solto no painel, de categoria nenhuma, passaria
+    // despercebido. Então todo `role="switch"` do painel tem de ser OU uma
+    // conferência OU morar num cartão que se declara — e cartão novo entra aqui,
+    // conscientemente, em vez de o número virar 3 sem ninguém olhar.
+    //
+    // O `ajustes-de-estilo` é troca determinística de pontuação, sem chamada de
+    // modelo: não é camada paga, e por isso não entra na contagem acima.
+    const CARTOES_DECLARADOS = ["ajustes-de-estilo"];
+    const soltos = await painel.evaluate(
+      (el, cartoes) =>
+        Array.from(el.querySelectorAll('[role="switch"]'))
+          // O rótulo é do PRÓPRIO interruptor, nunca de um ancestral: a primeira
+          // versão desta linha perguntava pelo `closest`, e aí um interruptor
+          // embrulhado num cartão `conferencia-*` sem carregar o rótulo escapava
+          // das DUAS asserções — nem contava como conferência, nem aparecia como
+          // solto. Medido em bancada antes de entrar.
+          .filter((s) => !s.getAttribute("data-testid")?.startsWith("conferencia-"))
+          .filter((s) => !cartoes.some((c) => s.closest(`[data-testid="${c}"]`)))
+          .map((s) => s.getAttribute("data-testid") ?? s.outerHTML.slice(0, 80)),
+      CARTOES_DECLARADOS,
+    );
+    expect(soltos, "interruptor no painel de segurança sem categoria declarada").toEqual([]);
   });
 
   test("desligado, a tela diz o que CONTINUA acontecendo — não só o que para", async () => {

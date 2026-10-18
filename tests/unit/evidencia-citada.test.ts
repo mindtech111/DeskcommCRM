@@ -33,8 +33,10 @@ const SUBPASTAS = new Set(
 
 /** Tudo que o git ENTREGA — não o que o disco tem. */
 function versionados(padrao: string): string[] {
-  return execFileSync("git", ["ls-files", padrao], { cwd: RAIZ, encoding: "utf8" })
-    .split("\n")
+  // NUL conserva nomes reais com acentos, espaços ou quebra de linha. Sem -z,
+  // core.quotepath pode devolver aspas/escapes que não são caminhos do disco.
+  return execFileSync("git", ["ls-files", "-z", "--", padrao], { cwd: RAIZ, encoding: "utf8" })
+    .split("\0")
     .filter(Boolean);
 }
 
@@ -118,7 +120,21 @@ function referenciasBrutas(texto: string): string[] {
       // não é citação de prova — é o achado do @MaestroConexoes um nível mais
       // fundo: o extrator já lia sintaxe, e ainda assim tratava `<n>` e `*`
       // como nome literal.
-      !/[<>*?{}]/.test(r),
+      !/[<>*?{}]/.test(r) &&
+      // Nem EXTENSÃO SOLTA: `` `.png` ``, `` `.svg` `` — o último segmento é só
+      // o ponto e o sufixo, sem nome. Não existe arquivo assim, e prosa técnica
+      // escreve exatamente assim ao falar do FORMATO em vez do arquivo:
+      // "SVG renomeado para `.png`", "PNG ou JPG". O extrator resolvia isso
+      // como `docs/.png` e reprovava mandando procurar uma imagem que ninguém
+      // tentou citar — a mensagem apontava para um arquivo faltando, quando o
+      // que faltava era um nome.
+      //
+      // Entrou depois de morder DUAS vezes em um dia: primeiro no
+      // `user-journey-map.md` (`fec15a35`), depois nos três `white-label*.md`,
+      // reintroduzida por quem tinha acabado de consertar a primeira. Duas
+      // instâncias da mesma classe em arquivos diferentes é o sinal de que o
+      // conserto pertence ao extrator, não ao texto.
+      !/(^|\/)\.[a-z0-9]+$/i.test(r),
   );
 }
 
@@ -149,8 +165,13 @@ const DOCS = versionados("*.md").filter(
  */
 const LEGADO = new Set([
   "docs/handoffs/HANDOFF-inbox-multimodal.md",
-  "HANDOFF-operacao-visivel.md",
-  "HANDOFF.md",
+  // Os dois que estavam na raiz até a #638. O caminho mudou (o arquivo foi
+  // arquivado em `docs/handoffs/`), a dívida não: a referência morta é a mesma.
+  // Sem esta correção de caminho, os dois viravam item FANTASMA da lista — e o
+  // primeiro caso do arquivo exige que a quarentena não guarde ninguém que o
+  // teste já não alcance.
+  "docs/handoffs/HANDOFF-operacao-visivel.md",
+  "docs/handoffs/HANDOFF.md",
   "docs/superpowers/plans/2026-07-21-onda0-fundacao-midia.md",
   "docs/superpowers/plans/2026-07-24-harness-fase2-skills.md",
   "loop/checkpoints/G2-report.md",

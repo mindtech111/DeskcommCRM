@@ -1,7 +1,11 @@
 "use client";
+
+import type { Locale } from "date-fns";
+
+import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
 import { useMemo } from "react";
 import { format, isToday, isYesterday } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { useT } from "@/hooks/i18n/useT";
 import { ChatCircle, Users, Storefront, Robot, Gear } from "@/lib/ui/icons";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
@@ -25,10 +29,26 @@ const ICON_MAP: Record<string, PhosphorIcon> = {
   system: Gear,
 };
 
-function dayHeader(d: Date): string {
-  if (isToday(d)) return "Hoje";
-  if (isYesterday(d)) return "Ontem";
-  return format(d, "dd/MM/yyyy", { locale: ptBR });
+function dayHeader(d: Date, t: (texto: string) => string = (texto) => texto, locale: Locale): string {
+  if (isToday(d)) return t("Hoje");
+  if (isYesterday(d)) return t("Ontem");
+  return format(d, "dd/MM/yyyy", { locale: locale });
+}
+
+/**
+ * A data do cabeçalho a partir da chave do grupo, que JÁ é o dia local do item
+ * (`format(…, "yyyy-MM-dd")` no agrupamento acima).
+ *
+ * Lida com `new Date(chave)` — o que este arquivo fazia —, uma string
+ * `aaaa-mm-dd` sem hora vira **meia-noite UTC**: em Brasília isso é 21h do dia
+ * ANTERIOR, e `dayHeader` passava a rotular o que aconteceu hoje como "Ontem"
+ * (issue #2934 — todo fuso a oeste de UTC). Montar a data pelos pedaços do
+ * próprio texto devolve meia-noite LOCAL, o mesmo dia que a chave nomeia em
+ * qualquer fuso.
+ */
+function diaLocalDaChave(chave: string): Date {
+  const [ano = 0, mes = 1, dia = 1] = chave.split("-").map(Number);
+  return new Date(ano, mes - 1, dia);
 }
 
 /**
@@ -48,6 +68,8 @@ function summarizePayload(p: Record<string, unknown>): string {
 }
 
 export function TimelineView({ contactId, types }: Props) {
+  const localeDaData = useLocaleDeData();
+  const t = useT();
   const q = useTimeline(contactId, types);
 
   const grouped = useMemo(() => {
@@ -76,9 +98,9 @@ export function TimelineView({ contactId, types }: Props) {
   if (q.isError) {
     return (
       <Card className="p-4">
-        <p className="text-sm text-error-fg">Erro ao carregar timeline.</p>
+        <p className="text-sm text-error-fg">{t("Erro ao carregar timeline.")}</p>
         <Button size="sm" variant="outline" className="mt-2" onClick={() => q.refetch()}>
-          Tentar novamente
+          {t("Tentar novamente")}
         </Button>
       </Card>
     );
@@ -87,7 +109,7 @@ export function TimelineView({ contactId, types }: Props) {
   if (grouped.length === 0) {
     return (
       <Card className="p-6 text-center text-sm text-muted-foreground">
-        Nenhuma atividade registrada ainda.
+        {t("Nenhuma atividade registrada ainda.")}
       </Card>
     );
   }
@@ -95,23 +117,28 @@ export function TimelineView({ contactId, types }: Props) {
   return (
     <div className="space-y-6">
       {grouped.map(([key, items]) => {
-        const date = new Date(key);
+        const date = diaLocalDaChave(key);
         return (
           <section key={key} className="space-y-2">
             <h3 className="sticky top-0 z-10 bg-background py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {dayHeader(date)}
+              {dayHeader(date, t, localeDaData)}
             </h3>
             <ul className="space-y-2">
               {items.map((it) => {
                 const Icon = ICON_MAP[it.source_module] ?? Gear;
-                const label = activityLabel(it.type);
-                const corpo = (it.reason ?? "").trim() || summarizePayload(it.payload);
+                const label = t(activityLabel(it.type));
+                const reasonTrim = (it.reason ?? "").trim();
+                const corpo = reasonTrim ? t(reasonTrim) : summarizePayload(it.payload);
                 const forma = actorShape(it.actor_kind ?? null);
-                const quem = actorName(it.actor_kind ?? null, {
-                  agente: it.actor_agent_name,
-                  usuario: it.actor_user_name,
-                });
-                const time = format(new Date(it.performed_at), "HH:mm", { locale: ptBR });
+                const quem = actorName(
+                  it.actor_kind ?? null,
+                  {
+                    agente: it.actor_agent_name,
+                    usuario: it.actor_user_name,
+                  },
+                  t,
+                );
+                const time = format(new Date(it.performed_at), "HH:mm", { locale: localeDaData });
                 return (
                   <li
                     key={it.id}
@@ -148,7 +175,13 @@ export function TimelineView({ contactId, types }: Props) {
                         <span className="text-xs text-muted-foreground">{time}</span>
                       </div>
                       {corpo && (
-                        <p className="mt-1 truncate text-sm text-muted-foreground">{corpo}</p>
+                        // `title` dá o texto completo em hover/foco — sem ele o
+                        // truncamento de uma linha só cortava nota sem nenhum
+                        // jeito de ler o resto (o valor já vem limitado a 200
+                        // caracteres em `summarizePayload`, então nem é raro).
+                        <p className="mt-1 truncate text-sm text-muted-foreground" title={corpo}>
+                          {corpo}
+                        </p>
                       )}
                     </div>
                   </li>
@@ -166,7 +199,7 @@ export function TimelineView({ contactId, types }: Props) {
             onClick={() => q.fetchNextPage()}
             disabled={q.isFetchingNextPage}
           >
-            {q.isFetchingNextPage ? "Carregando…" : "Carregar mais"}
+            {q.isFetchingNextPage ? t("Carregando…") : t("Carregar mais")}
           </Button>
         </div>
       )}

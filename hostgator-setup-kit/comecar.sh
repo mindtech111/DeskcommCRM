@@ -13,7 +13,7 @@
 #
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/melgarafael/DeskcommCRM.git}"
+REPO_URL="${REPO_URL:-https://github.com/mindtech111/DeskcommCRM.git}"
 # Link de parceria com a HostGator. Mesma URL e mesmo rótulo do README: uma
 # promessa só, num lugar só — duas redações da mesma oferta viram duas ofertas.
 VPS_URL="https://www.hostgator.com.br/52708-141-3-52.html"
@@ -200,9 +200,10 @@ MENU
       cat <<SSH
 
   Entre no servidor pelo terminal. O provedor te mandou o IP e a senha de root
-  por e-mail quando a VPS ficou pronta:
+  por e-mail quando a VPS ficou pronta. A HostGator escuta o SSH na porta 22022,
+  e não na 22 padrão, por isso o \`-p 22022\`:
 
-       ssh root@SEU_IP_AQUI
+       ssh -p 22022 root@SEU_IP_AQUI
 
 SSH
       comando_de_instalacao

@@ -56,8 +56,33 @@ export const ROTULO_DO_PASSO: Readonly<Record<LeadStage, string>> = {
   lost: "Perdido",
 };
 
+/**
+ * O mesmo passo, explicado para quem nunca configurou um CRM.
+ *
+ * ⚠️ MORA AO LADO DO RÓTULO DE PROPÓSITO. O wizard precisa de uma frase, e não
+ * de um rótulo de duas palavras: "Em qualificação" não diz nada a quem instalou
+ * o sistema há dez minutos e está decidindo o que cada coluna do quadro
+ * significa. Escrever essa frase lá teria criado uma SEGUNDA redação dos mesmos
+ * sete passos — e duas redações divergem no primeiro ajuste de qualquer uma.
+ * Aqui, quem mudar o vocabulário do funil do agente vê as duas juntas.
+ */
+export const EXPLICACAO_DO_PASSO: Readonly<Record<LeadStage, string>> = {
+  new: "acabou de chamar e ninguém respondeu ainda",
+  contacted: "já foi respondido",
+  qualifying: "ele está entendendo o que a pessoa precisa",
+  qualified: "já dá para saber o que oferecer",
+  negotiating: "está fechando preço, horário ou condições",
+  won: "fechou negócio",
+  lost: "não fechou",
+};
+
 function ehPasso(valor: string): valor is LeadStage {
   return (LEAD_STAGES as readonly string[]).includes(valor);
+}
+
+/** A explicação do passo. Hint fora do vocabulário não inventa frase. */
+export function explicacaoDoPasso(passo: string): string | null {
+  return ehPasso(passo) ? EXPLICACAO_DO_PASSO[passo] : null;
 }
 
 /** Rótulo de tela. Hint fora do vocabulário (banco antigo) sai cru, mas nunca em branco. */
@@ -219,4 +244,69 @@ export function diffParaUpdates(
   }
 
   return [...limpar, ...ocupar];
+}
+
+// ---------------------------------------------------------------------------
+// COBERTURA — a lacuna precisa ser VISÍVEL onde ela custa (spec 17 passo 4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Os passos que MOVEM o card, e por isso precisam de destino.
+ *
+ * `won` e `lost` ficam de fora: têm coluna própria no funil (`is_won`/`is_lost`)
+ * e o produto já sabe encontrá-las sem tradução. Cobrá-las aqui inflaria a
+ * lacuna com uma pendência que não existe — e uma barra que nunca chega a 100%
+ * é uma barra que se aprende a ignorar.
+ */
+export const PASSOS_QUE_PRECISAM_DE_ETAPA = [
+  "new",
+  "contacted",
+  "qualifying",
+  "qualified",
+  "negotiating",
+] as const;
+
+export interface CoberturaDoFunil {
+  /** Quantos passos têm uma etapa apontada. */
+  traduzidos: number;
+  /** Quantos passos MOVEM o card e por isso precisam de destino. */
+  total: number;
+  /** Nenhum passo traduzido: o agente cuida do funil e não sabe para onde ir. */
+  mudo: boolean;
+  /** Os passos sem destino, em português, para a tela poder nomeá-los. */
+  faltando: string[];
+}
+
+/**
+ * Quanto deste funil o agente sabe percorrer.
+ *
+ * ═══ O QUE ISTO RESOLVE ═══
+ *
+ * Medido: 6 de 36 etapas mapeadas na produção, e os funis "Comercial - Andrea",
+ * "Comercial - Julia" e "Suporte - IA" com ZERO. Neles o agente não sabe para
+ * onde mover — e a única forma de descobrir isso hoje é entrar funil por funil
+ * na tela de tradução.
+ *
+ * ⚠️ A lacuna só custa onde o agente ATUA. Depois do passo 3, um funil sem
+ * tradução e FORA do escopo é irrelevante: ninguém prometeu nada sobre ele.
+ * Dentro do escopo, é promessa que não se cumpre — o dono marcou o funil
+ * achando que o assistente ia organizá-lo, e ele não vai.
+ */
+export function coberturaDoFunil(etapas: readonly EtapaDoMapa[]): CoberturaDoFunil {
+  const apontados = new Set(
+    etapas
+      .filter((e) => e.agent_stage_hint !== null && e.agent_stage_hint !== "")
+      .map((e) => e.agent_stage_hint as string),
+  );
+  const faltando = PASSOS_QUE_PRECISAM_DE_ETAPA.filter((p) => !apontados.has(p));
+  const traduzidos = PASSOS_QUE_PRECISAM_DE_ETAPA.length - faltando.length;
+  return {
+    traduzidos,
+    total: PASSOS_QUE_PRECISAM_DE_ETAPA.length,
+    // MUDO é diferente de incompleto: um funil com 3 de 5 passos o agente
+    // percorre em parte; com 0 ele não consegue mover nada, nunca. Só o segundo
+    // merece alarme, e distinguir os dois é o que evita o alarme constante.
+    mudo: traduzidos === 0,
+    faltando: faltando.map((p) => rotuloDoPasso(p)),
+  };
 }

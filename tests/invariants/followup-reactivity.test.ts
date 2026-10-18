@@ -1,10 +1,14 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { criarOrigemDeFollowup } from "./followup-service-origin";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
 
+import { isolarFixtureDeFollowup } from "./followup-isolamento";
+import { relogioAncoradoNoBanco } from "./followup-relogio";
 import { runFollowupTick, type FollowupJobRequest, type TickDeps, type AdminClient } from "@/lib/followup/engine";
 import { completeTurnForEnrollment, createPgAdminClient } from "@/lib/followup/turn-bridge";
 import {
   applyReactivityEvent,
+  LIVE_STATUSES,
   RESUME_GRACE_MS,
   type LiveEnrollmentRef,
   type ReactivityAdminClient,
@@ -25,10 +29,11 @@ import type { EnrollmentEventRef, EnrollmentRow } from "@/lib/followup/node-hand
  * fino que pluga no dispatcher não tem lógica própria pra testar.
  *
  * Congela: (1) STOP cancela TUDO que está vivo (opted_out), idempotente sob
- * re-drain; (2) inbound em waiting_reply sem cancel_on_reply acorda (marker +
+ * re-drain — inclusive a pausa manual, que a mensagem comum não toca; (2) inbound em waiting_reply sem cancel_on_reply acorda (marker +
  * next_eval_at=now) e o PRÓPRIO tick do engine classifica em vez de rotear
  * no_reply (a corrida classify-lento documentada no HANDOFF); (3) inbound com
- * cancel_on_reply=true cancela (replied); (4) handoff aberto aplica a política
+ * cancel_on_reply=true cancela (replied), inclusive quando a inscrição está em
+ * espera fixa active; (4) handoff aberto aplica a política
  * do pointer (pause/cancel/allow); (5) O CENTERPIECE anti-Tomik: pausa por
  * handoff → fecha → retoma pra active com next_eval_at setado, nunca preso.
  */
@@ -50,7 +55,19 @@ afterAll(async () => {
 
 // ---- pg-backed ReactivityAdminClient (test-only; prod usa createSupabaseReactivityClient) ----
 
-const LIVE_STATUSES = ["active", "waiting_reply", "paused_handoff"];
+// A lista de estados vivos vem de PRODUÇÃO, e isso não é higiene: com uma cópia
+// aqui, este arquivo não conseguia pegar defeito nela. Medido — apliquei o
+// conserto em `reactivity.ts` e a catraca abaixo NÃO disparou, porque o adapter
+// deste teste consultava a réplica. Réplica que erra igual à original concorda
+// com ela, e concordância entre cópias parece confirmação.
+//
+// E a lista de QUAIS estados carregar vem de quem chama, como na produção. A
+// interface ganhou o terceiro parâmetro na espera longa (d83e66900: o opt-out
+// carrega também `dormente` e `coletando`), e este dublê seguiu consultando
+// `LIVE_STATUSES` fixo. Foi por isso que a catraca do `paused_manual` dizia que
+// o conserto seria "acrescentar a LIVE_STATUSES": aqui, a lista do opt-out nem
+// chegava ao banco. Medido no conserto: com o estado na lista certa, o caso do
+// STOP seguia reprovando, até este dublê respeitar o parâmetro.
 
 function reactivityDb(): ReactivityAdminClient {
   return {
@@ -68,14 +85,14 @@ function reactivityDb(): ReactivityAdminClient {
       );
       return rows[0]?.is_blocked ?? false;
     },
-    async loadLiveEnrollmentsForContact(orgId, contactId): Promise<LiveEnrollmentRef[]> {
+    async loadLiveEnrollmentsForContact(orgId, contactId, statuses = LIVE_STATUSES): Promise<LiveEnrollmentRef[]> {
       const { rows } = await pool.query(
         `select e.id, e.status, e.current_node_id, e.steps_taken, e.pointer_id,
                 p.handoff_policy, p.trigger_config
          from followup_enrollments e
          join followup_flow_pointers p on p.id = e.pointer_id
          where e.organization_id = $1 and e.contact_id = $2 and e.status = any($3)`,
-        [orgId, contactId, LIVE_STATUSES],
+        [orgId, contactId, statuses],
       );
       return rows;
     },
@@ -102,6 +119,12 @@ function reactivityDb(): ReactivityAdminClient {
         orgId,
         ...values,
       ]);
+    },
+    // Migration 0143: quem acorda um enrollment grava o relógio do BANCO,
+    // porque o claim compara com now() e o processo fica à frente.
+    async agoraNoBanco() {
+      const { rows } = await pool.query<{ agora: string }>(`select public.fn_agora() as agora`);
+      return rows[0]!.agora;
     },
   };
 }
@@ -154,9 +177,12 @@ function engineDb(): AdminClient {
     async loadLeadFacts() {
       return { lead_stage: null, tags: [] };
     },
+    async loadLastInboundBody() {
+      return null;
+    },
     async loadEnrollmentEvents(enrollmentId): Promise<EnrollmentEventRef[]> {
       const { rows } = await pool.query<EnrollmentEventRef>(
-        `select node_id, idempotency_key from followup_enrollment_events where enrollment_id = $1`,
+        `select node_id, idempotency_key, event_type, payload from followup_enrollment_events where enrollment_id = $1 order by created_at asc`,
         [enrollmentId],
       );
       return rows;
@@ -199,6 +225,7 @@ function engineDb(): AdminClient {
         [item.organization_id, item.title, item.body, item.ref_id],
       );
     },
+    async persistirRespostaFollowup() {},
   };
 }
 
@@ -230,7 +257,7 @@ async function seedConversation(org: string, contactId: string): Promise<string>
   const { rows: sessRows } = await pool.query<{ id: string }>(
     `insert into channel_sessions (organization_id, waha_session_name, status, webhook_secret_encrypted)
      values ($1, $2, 'WORKING', '\\x00'::bytea) returning id`,
-    [org, `reactivity-session-${Date.now()}-${Math.random()}`],
+    [org, `reactivity-session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`],
   );
   const sessionId = sessRows[0]!.id;
   const { rows: convRows } = await pool.query<{ id: string }>(
@@ -283,12 +310,13 @@ async function seedEnrollment(params: {
       : status === "paused_handoff"
         ? null
         : new Date(Date.now() + 3_600_000).toISOString();
+  const boundary = await criarOrigemDeFollowup(pool, params.org, params.contactId);
   const { rows } = await pool.query<{ id: string }>(
     `insert into followup_enrollments
-       (organization_id, pointer_id, version_id, contact_id, current_node_id, status, next_eval_at, steps_taken)
-     values ($1, $2, $3, $4, $5, $6, $7, $8)
+       (organization_id, pointer_id, version_id, contact_id, current_node_id, status, next_eval_at, steps_taken, conversation_id, service_boundary)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
      returning id`,
-    [params.org, params.pointerId, params.versionId, params.contactId, params.currentNodeId, status, nextEvalAt, params.stepsTaken ?? 0],
+    [params.org, params.pointerId, params.versionId, params.contactId, params.currentNodeId, status, nextEvalAt, params.stepsTaken ?? 0, boundary.conversation_id, JSON.stringify(boundary)],
   );
   return rows[0]!.id;
 }
@@ -351,6 +379,14 @@ beforeAll(() => {
   flowGraphSchema.parse(SIMPLE_GRAPH);
 });
 
+// Este arquivo roda `runFollowupTick` e cada `it` cria o próprio enrollment
+// (`nextOrgId()`), então limpar entre eles não tira nada de ninguém — e impede
+// que o tick daqui reclame enrollment devido de outro arquivo. Ver
+// ./followup-isolamento.ts.
+beforeEach(async () => {
+  await isolarFixtureDeFollowup(pool);
+});
+
 // ---- 1. STOP cancela tudo ----
 
 describe("applyReactivityEvent — STOP/opt-out (message.received + is_blocked)", () => {
@@ -380,6 +416,197 @@ describe("applyReactivityEvent — STOP/opt-out (message.received + is_blocked)"
 
     const afterDone = await getEnrollment(done);
     expect(afterDone.status).toBe("completed"); // terminal intocado pelo STOP
+  });
+
+  /**
+   * O caso gêmeo de `paused_manual` (migration 0145). A lista de estados é escrita à
+   * mão, e estado novo não entra nela sozinho: dos SEIS consumidores que listam
+   * estados vivos, cinco acompanharam a 0145 e este — o único que fala em nome do
+   * opt-out do lead — não. O comentário do STOP promete "cancela TUDO que está
+   * vivo, sem exceção de política", e TUDO deixou de ser verdade quando o estado
+   * novo entrou: comentário que descreve alcance envelhece junto com a lista.
+   *
+   * CONSERTADO: o caso abaixo nasceu catraca (`it.fails`, 3f812035b) e virou
+   * teste normal quando `paused_manual` entrou em `STATUS_ALCANCADOS_PELO_OPT_OUT`
+   * — a lista do opt-out, a mesma que já alcançava o dormente. NÃO em
+   * `LIVE_STATUSES`: aquela é a lista de quem REAGE ao inbound, e a pausa que uma
+   * pessoa pôs não acorda nem cancela com mensagem comum, e não é tomada pelo
+   * handoff. Os dois casos depois do STOP prendem essa metade; o do handoff é o
+   * que reprova o conserto feito pelo lado errado.
+   *
+   * O QUE CUSTA, medido em consequência e não em susto: a mensagem NÃO vaza —
+   * `stopGate` (before-send) relê `is_blocked` direto da fonte no turno e o sink
+   * veta em definitivo no 403. O que sobra é sujeira de estado: o enrollment não
+   * vira `opted_out` e OCUPA a vaga única do contato
+   * (`idx_followup_enrollments_one_live`), então um follow-up legítimo futuro
+   * morre com 23505 sem ninguém entender por quê — "esse contato nunca mais entra
+   * em follow-up e não sabemos a razão". Mais turnos enfileirados só para serem
+   * vetados, e a métrica de outcome sem contar este opt-out.
+   */
+  /**
+   * CONTROLE POSITIVO do caso abaixo, e ele é um `it` NORMAL de propósito.
+   * (Nasceu para a catraca, quando o caso era `it.fails`; segue valendo como
+   * guarda da fixture — o raciocínio abaixo é o de quando nasceu.)
+   *
+   * `it.fails` é satisfeito por QUALQUER falha — typo, import quebrado, fixture
+   * impossível. Numa árvore sem a 0145 o CHECK de `followup_enrollments` recusa
+   * `paused_manual`, o seed estoura 23514, a catraca fica VERDE por não
+   * conseguir nem montar o cenário, e ninguém vira essa pedra nunca: catraca
+   * verde pelo motivo errado é pior que caso ausente, porque parece cobertura.
+   *
+   * Pôr a asserção DENTRO da catraca não resolveria — a falha dela também
+   * satisfaria o `.fails`. Separado e alto, este caso reprova de verdade e a
+   * mensagem aponta para migration ausente em vez de defeito de reactivity.
+   */
+  it("controle positivo: a fixture consegue mesmo criar um enrollment paused_manual", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const contactId = await seedContact(org);
+    const flow = await seedFlow(org, SIMPLE_GRAPH);
+    const id = await seedEnrollment({
+      org,
+      pointerId: flow.pointerId,
+      versionId: flow.versionId,
+      contactId,
+      currentNodeId: "w1",
+      status: "paused_manual",
+      nextEvalAt: null,
+    });
+
+    const row = await getEnrollment(id);
+    expect(row.status).toBe("paused_manual");
+  });
+
+  /**
+   * SEGUNDO controle positivo (também nascido para a catraca, e também mantido),
+   * e fecha o resíduo que o @MaestroConexoes apontou:
+   * `it.fails` também é satisfeito por EXCEÇÃO. Se `applyReactivityEvent` passar
+   * a estourar por regressão alheia, a catraca abaixo fica verde satisfeita pelo
+   * throw — pelo motivo errado, de novo, um nível acima da fixture.
+   *
+   * Este caso é `it` normal: exercita o MESMO caminho e só exige que ele
+   * complete. Regressão que derrube `applyReactivityEvent` reprova ALTO aqui,
+   * com a mensagem apontando para a exceção, enquanto a catraca seguiria muda.
+   */
+  it("controle positivo: aplicar o evento de STOP com enrollment pausado não estoura", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const contactId = await seedContact(org, { isBlocked: true });
+    const flow = await seedFlow(org, SIMPLE_GRAPH);
+    await seedEnrollment({
+      org,
+      pointerId: flow.pointerId,
+      versionId: flow.versionId,
+      contactId,
+      currentNodeId: "w1",
+      status: "paused_manual",
+      nextEvalAt: null,
+    });
+
+    const row = eventRow({ organization_id: org, event_type: "message.received", payload: { contact_id: contactId } });
+    const summary = await applyReactivityEvent(reactivityDb(), () => new Date(), row);
+    expect(summary.matched).toBe(true); // completou; o QUANTO é o caso abaixo
+  });
+
+  // ACOPLADO À MIGRATION 0145: o `seedEnrollment` abaixo grava
+  // `status: "paused_manual"`, que o CHECK de `followup_enrollments` só aceita
+  // depois da 0145. Cherry-pick isolado para uma árvore sem ela vira 23514 no
+  // seed, e o vermelho vai parecer defeito de reactivity em vez de migration
+  // ausente — o primeiro controle positivo acima diz qual dos dois é.
+  //
+  // Era CATRACA (`it.fails`): exigia que o defeito ainda estivesse lá. Virou teste
+  // normal no conserto, e por isso agora afirma o estado final INTEIRO — a catraca
+  // só podia ter uma asserção (o `.fails` se satisfaz com a primeira que falha) e
+  // dependia do caso irmão para o resto; um teste normal não precisa emprestar.
+  it("STOP alcança também o enrollment PAUSADO MANUALMENTE — opt-out não abre exceção de estado", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const contactId = await seedContact(org, { isBlocked: true });
+    const flow = await seedFlow(org, SIMPLE_GRAPH);
+    const id = await seedEnrollment({
+      org,
+      pointerId: flow.pointerId,
+      versionId: flow.versionId,
+      contactId,
+      currentNodeId: "w1",
+      status: "paused_manual",
+      nextEvalAt: null,
+    });
+
+    const row = eventRow({ organization_id: org, event_type: "message.received", payload: { contact_id: contactId } });
+    const summary = await applyReactivityEvent(reactivityDb(), () => new Date(), row);
+    expect(summary).toEqual({ matched: true, reacted: 1 });
+
+    const after = await getEnrollment(id);
+    expect(after.status).toBe("cancelled");
+    expect(after.outcome).toBe("opted_out");
+    expect(after.next_eval_at).toBeNull();
+
+    const events = await getEvents(id);
+    expect(events.filter((e) => e.event_type === "reactivity_opted_out")).toHaveLength(1);
+  });
+
+  // A outra metade do conserto: o STOP alcança a pausa manual, e o resto não.
+  // Mensagem comum de quem não pediu para parar — mesmo com `cancel_on_reply`
+  // ligado no fluxo — não acorda nem cancela a pausa que uma pessoa pôs: quem a
+  // retoma é quem pausou. (Este caso prende o comportamento, mas NÃO separa o
+  // conserto certo do errado: o caminho do inbound filtra por `waiting_reply` e
+  // `active`. Quem separa é o caso seguinte, do handoff — medido por sabotagem.)
+  it("mensagem comum NÃO toca a pausa manual — só o opt-out a alcança", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const contactId = await seedContact(org);
+    const flow = await seedFlow(org, SIMPLE_GRAPH, { triggerConfig: { kind: "manual", cancel_on_reply: true } });
+    const id = await seedEnrollment({
+      org,
+      pointerId: flow.pointerId,
+      versionId: flow.versionId,
+      contactId,
+      currentNodeId: "w1",
+      status: "paused_manual",
+      nextEvalAt: null,
+    });
+
+    const row = eventRow({ organization_id: org, event_type: "message.received", payload: { contact_id: contactId } });
+    const summary = await applyReactivityEvent(reactivityDb(), () => new Date(), row);
+    expect(summary).toEqual({ matched: true, reacted: 0 });
+
+    const after = await getEnrollment(id);
+    expect(after.status).toBe("paused_manual");
+    expect(after.outcome).toBeNull();
+    expect((await getEvents(id)).filter((e) => e.event_type.startsWith("reactivity_"))).toEqual([]);
+  });
+
+  // O caso que SEPARA o conserto certo do errado. `paused_manual` entra na lista do
+  // opt-out, e não em `LIVE_STATUSES`, porque a lista de vivos também é a do
+  // HANDOFF: lá, a pausa manual viraria `paused_handoff` ao abrir um atendimento
+  // humano, e o fechamento dele (`reactToHandoffClose`) a retomaria para `active` —
+  // a régua voltaria a falar sem que quem pausou tivesse retomado. Pôr o estado em
+  // `LIVE_STATUSES` passa no caso do STOP e reprova aqui.
+  it("handoff aberto NÃO toma a pausa manual — ela não vira paused_handoff", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const contactId = await seedContact(org);
+    const conversationId = await seedConversation(org, contactId);
+    const flow = await seedFlow(org, SIMPLE_GRAPH, { handoffPolicy: "pause" });
+    const id = await seedEnrollment({
+      org,
+      pointerId: flow.pointerId,
+      versionId: flow.versionId,
+      contactId,
+      currentNodeId: "w1",
+      status: "paused_manual",
+      nextEvalAt: null,
+    });
+
+    const row = eventRow({
+      organization_id: org,
+      event_type: "ai.handoff_triggered",
+      payload: { conversation_id: conversationId, reason: "low_confidence" },
+    });
+    const summary = await applyReactivityEvent(reactivityDb(), () => new Date(), row);
+    expect(summary).toEqual({ matched: true, reacted: 0 });
+    expect((await getEnrollment(id)).status).toBe("paused_manual");
   });
 
   it("re-drenar o MESMO event_log row é idempotente — sem efeito duplicado", async () => {
@@ -413,7 +640,7 @@ describe("applyReactivityEvent — inbound wake (waiting_reply, sem cancel_on_re
     // 1º tick: entra no ai_classify, enfileira o classify (status vira waiting_reply).
     const jobs: FollowupJobRequest[] = [];
     const eDb = engineDb();
-    const tickDeps: TickDeps = { db: eDb, clock: () => new Date(), enqueueJob: async (j) => void jobs.push(j) };
+    const tickDeps: TickDeps = { db: eDb, clock: relogioAncoradoNoBanco(), enqueueJob: async (j) => void jobs.push(j) };
     const enrollmentId = await seedEnrollment({
       org,
       pointerId,
@@ -443,6 +670,19 @@ describe("applyReactivityEvent — inbound wake (waiting_reply, sem cancel_on_re
     const afterWake = await getEnrollment(enrollmentId);
     expect(new Date(afterWake.next_eval_at as string).getTime()).toBeLessThanOrEqual(Date.now() + 2_000);
     expect(afterWake.status).toBe("waiting_reply"); // reactivity não muda status, só acorda
+
+    // A asserção acima já provou o que a reactivity faz: trouxe o next_eval_at de
+    // +10min para "agora". O empurrão abaixo existe por causa de DOIS RELÓGIOS:
+    // a reactivity grava o instante com o relógio do PROCESSO (clock injetado) e
+    // o claim pergunta `next_eval_at <= now()`, o do POSTGRES. Medido nesta
+    // configuração: o `now()` do banco fica 17 a 34ms ATRÁS do processo — então
+    // "agora" gravado aqui ainda é futuro para o claim, e o tick logo em seguida
+    // não reclama nada. Em produção o efeito não existe (o tick seguinte vem um
+    // minuto depois); neste teste os dois passos são consecutivos, e era a última
+    // fonte de vermelho intermitente do arquivo.
+    await pool.query(`update followup_enrollments set next_eval_at = now() - interval '1 second' where id = $1`, [
+      enrollmentId,
+    ]);
 
     // 2º tick: reclama por causa do next_eval_at movido. SEM o wake marker,
     // waitElapsed=true cairia em 'no_reply' (fix da Task 5.1) — descartando a
@@ -475,6 +715,34 @@ describe("applyReactivityEvent — inbound wake (waiting_reply, sem cancel_on_re
     const after = await getEnrollment(enrollmentId);
     expect(after.status).toBe("cancelled");
     expect(after.outcome).toBe("replied");
+  });
+
+  // O nome anterior deste caso dizia "espera fixa", e o caminho testado não lê
+  // tipo de nó nenhum: `esperaAtiva` filtra por `status === 'active'`. O rótulo
+  // prometia menos do que o código faz, e quem lesse o teste procuraria uma
+  // condição de nó que não existe. A amplitude é deliberada — a chave na tela
+  // diz "cancelar se o lead responder", sem ressalva de nó —, e o caso irmão
+  // abaixo a prende de propósito.
+  it("cancel_on_reply cancela também a inscrição active, não só a waiting_reply", async () => {
+    const org = nextOrgId();
+    await seedOrg(org);
+    const contactId = await seedContact(org);
+    const { pointerId, versionId } = await seedFlow(org, SIMPLE_GRAPH, {
+      triggerConfig: { kind: "stage_change", params: { stage_id: nextOrgId() }, cancel_on_reply: true },
+    });
+    const enrollmentId = await seedEnrollment({ org, pointerId, versionId, contactId, currentNodeId: "w1", status: "active" });
+
+    const row = eventRow({ organization_id: org, event_type: "message.received", payload: { contact_id: contactId } });
+    const summary = await applyReactivityEvent(reactivityDb(), () => new Date(), row);
+    expect(summary).toEqual({ matched: true, reacted: 1 });
+
+    const after = await getEnrollment(enrollmentId);
+    expect(after.status).toBe("cancelled");
+    expect(after.outcome).toBe("replied");
+    expect(after.next_eval_at).toBeNull();
+
+    const events = await getEvents(enrollmentId);
+    expect(events.map((e) => e.event_type)).toEqual(["reactivity_replied"]);
   });
 
   it("cancel_on_reply ausente (schema antigo) — comportamento inalterado: acorda, não cancela", async () => {
@@ -613,7 +881,7 @@ describe("applyReactivityEvent — anti-Tomik: paused_handoff SEMPRE tem consumi
       enrollmentId,
     ]);
     expect(resumed.steps_taken).toBe(0); // reactivity nunca mexe em steps_taken (não é passo de grafo)
-    await runFollowupTick({ db: engineDb(), clock: () => new Date(), enqueueJob: async () => {} }, { limit: 50 });
+    await runFollowupTick({ db: engineDb(), clock: relogioAncoradoNoBanco(), enqueueJob: async () => {} }, { limit: 50 });
     const afterTick = await getEnrollment(enrollmentId);
     expect(Number(afterTick.steps_taken)).toBe(1); // ESTE enrollment foi processado pelo tick de verdade
   });
@@ -672,7 +940,8 @@ describe("completeTurnForEnrollment (turn-bridge) — respeita paused_handoff", 
       currentNodeId: "ac1",
       nextEvalAt: new Date(Date.now() - 1_000).toISOString(),
     });
-    const tick1 = await runFollowupTick({ db: pgDb, clock: () => new Date(), enqueueJob: async (j) => void jobs.push(j) }, { limit: 5 });
+    expect((await getEnrollment(enrollmentId)).conversation_id).toBe(conversationId);
+    const tick1 = await runFollowupTick({ db: pgDb, clock: relogioAncoradoNoBanco(), enqueueJob: async (j) => void jobs.push(j) }, { limit: 5 });
     expect(tick1.scheduled).toBe(1);
     const afterTick1 = await getEnrollment(enrollmentId);
     expect(afterTick1.status).toBe("waiting_reply");

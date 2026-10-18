@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -18,7 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Robot, Plus, Trash, PencilSimple } from "@/lib/ui/icons";
+import { Robot, Plus, Trash, PencilSimple, FlowArrow } from "@/lib/ui/icons";
 import { SeloDeAutoria } from "@/components/operacao/SeloDeAutoria";
 import {
   useAutomationRules,
@@ -28,14 +29,17 @@ import {
 } from "@/hooks/webhooks/useAutomationRules";
 import { TRIGGER_LABELS, type TriggerEvent } from "./labels";
 import { RuleEditor } from "./RuleEditor";
+import { useT } from "@/hooks/i18n/useT";
 
 const RULES_QUERY_KEY = ["automation-rules"];
+const DESIGNER_NOVA = "/app/webhooks/automacoes/nova";
 
-function triggerLabel(trigger: string): string {
-  return TRIGGER_LABELS[trigger as TriggerEvent] ?? trigger;
+function triggerLabel(trigger: string, t: (texto: string) => string): string {
+  return t(TRIGGER_LABELS[trigger as TriggerEvent] ?? trigger);
 }
 
 export function RulesTab() {
+  const t = useT();
   const { data, isLoading } = useAutomationRules();
   const update = useUpdateAutomationRule();
   const del = useDeleteAutomationRule();
@@ -54,7 +58,7 @@ export function RulesTab() {
     update.mutate(
       { id: rule.id, is_active: checked },
       {
-        onSuccess: () => toast.success(checked ? "Automação ligada." : "Automação pausada."),
+        onSuccess: () => toast.success(checked ? t("Automação ligada.") : t("Automação pausada.")),
         onError: () => qc.invalidateQueries({ queryKey: RULES_QUERY_KEY }),
       },
     );
@@ -85,14 +89,21 @@ export function RulesTab() {
         <Card className="max-w-md">
           <CardHeader className="items-center text-center">
             <Robot className="mb-2 h-10 w-10 text-accent" />
-            <CardTitle>Crie sua primeira automação</CardTitle>
+            <CardTitle>{t("Crie sua primeira automação")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-center">
             <p className="text-sm text-muted-foreground">
-              Ex.: quando entrar um contato novo, enviar uma mensagem de boas-vindas.
+              {t("Ex.: quando entrar um contato novo, enviar uma mensagem de boas-vindas.")}
             </p>
             <Button onClick={openCreate}>
-              <Plus /> Nova automação
+              <Plus /> {t("Nova automação")}
+            </Button>
+            {/* Fase 1 do designer: a mesma automação, montada no canvas. É link
+                (não botão) para não colidir com quem procura "Nova automação". */}
+            <Button asChild variant="secondary">
+              <Link href={DESIGNER_NOVA}>
+                <FlowArrow /> {t("Montar no designer")}
+              </Link>
             </Button>
           </CardContent>
         </Card>
@@ -103,9 +114,14 @@ export function RulesTab() {
 
   return (
     <div className="space-y-4 pt-4">
-      <div className="flex justify-end">
-        <Button onClick={openCreate}>
-          <Plus /> Nova automação
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+        <Button asChild variant="secondary" className="w-full sm:w-auto">
+          <Link href={DESIGNER_NOVA}>
+            <FlowArrow /> {t("Montar no designer")}
+          </Link>
+        </Button>
+        <Button onClick={openCreate} className="w-full sm:w-auto">
+          <Plus /> {t("Nova automação")}
         </Button>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -115,12 +131,12 @@ export function RulesTab() {
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="truncate">{r.name}</CardTitle>
                 <Badge variant={r.is_active ? "success" : "neutral"}>
-                  {r.is_active ? "Ativa" : "Pausada"}
+                  {r.is_active ? t("Ativa") : t("Pausada")}
                 </Badge>
               </div>
-              <p className="text-xs text-muted-foreground">{triggerLabel(r.trigger_event)}</p>
+              <p className="text-xs text-muted-foreground">{triggerLabel(r.trigger_event, t)}</p>
               <p className="text-xs text-muted-foreground">
-                {r.actions.length} {r.actions.length === 1 ? "ação" : "ações"}
+                {r.actions.length} {r.actions.length === 1 ? t("ação") : t("ações")}
               </p>
               {/* Uma regra ligada roda sozinha para sempre: quem a ligou é parte
                   do estado dela, não um detalhe de auditoria. */}
@@ -131,15 +147,20 @@ export function RulesTab() {
                 checked={r.is_active}
                 disabled={update.isPending}
                 onCheckedChange={(checked) => toggleActive(r, checked)}
-                aria-label={`${r.is_active ? "Pausar" : "Ligar"} ${r.name}`}
+                aria-label={`${r.is_active ? t("Pausar") : t("Ligar")} ${r.name}`}
               />
               <div className="flex items-center gap-1">
+                <Button asChild variant="ghost" size="icon">
+                  <Link href={`/app/webhooks/automacoes/${r.id}`} aria-label={t("Abrir no designer")}>
+                    <FlowArrow />
+                  </Link>
+                </Button>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
                   onClick={() => openEdit(r)}
-                  aria-label="Editar automação"
+                  aria-label={t("Editar automação")}
                 >
                   <PencilSimple />
                 </Button>
@@ -148,7 +169,7 @@ export function RulesTab() {
                   variant="ghost"
                   size="icon"
                   onClick={() => setDeleting(r)}
-                  aria-label="Excluir automação"
+                  aria-label={t("Excluir automação")}
                 >
                   <Trash />
                 </Button>
@@ -163,22 +184,22 @@ export function RulesTab() {
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir esta automação?</AlertDialogTitle>
+            <AlertDialogTitle>{t("Excluir esta automação?")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleting?.name} para de rodar imediatamente. Essa ação não pode ser desfeita.
+              {deleting?.name} {t("para de rodar imediatamente. Essa ação não pode ser desfeita.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel>{t("Cancelar")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={async () => {
                 if (!deleting) return;
                 await del.mutateAsync(deleting.id);
-                toast.success("Automação excluída.");
+                toast.success(t("Automação excluída."));
                 setDeleting(null);
               }}
             >
-              Excluir
+              {t("Excluir")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -8,12 +8,12 @@
 
 - **App (Next.js 16 App Router)**: UI + Route Handlers no mesmo repo. Server Components por default, Client onde precisa de estado. Middleware de borda em `proxy.ts` (Next 16 renomeou `middleware.ts` → `proxy.ts`).
 - **DB (Supabase Postgres)**: RLS em toda tabela tenant-aware via `fn_user_org_ids()`. Migrations versionadas em `supabase/migrations/`.
-- **Auth (Supabase Auth + `@supabase/ssr`)**: cookie SameSite=Strict, MFA TOTP forçado pra admin/super-admin. Sempre `getUser()` no server.
+- **Auth (Supabase Auth + `@supabase/ssr`)**: cookie SameSite=Strict. Sempre `getUser()` no server, nunca `getSession()`. **MFA TOTP é opcional e ligado por quem administra** — duas políticas independentes que somam (`platform_admins.mfa_required` e `organizations.settings.security.mfa_required`), ambas com padrão **não exigir**; regra pura em `lib/auth/politica-mfa.ts`. Esta linha dizia "forçado pra admin/super-admin", que era a regra antiga: como o `install.sh` cria o dono como platform admin, toda instalação self-host recebia um bloqueador de tela cheia logo após o onboarding. Cadastrar e provar são coisas diferentes — quem TEM fator prova na sessão sempre, independente da política.
 - **Realtime (Supabase Realtime)**: `postgres_changes` para inbox/kanban; `broadcast` para sinais leves.
 - **Storage (Supabase Storage)**: bucket `whatsapp-media` privado, URLs assinadas.
 - **WhatsApp (WAHA Plus / engine NOWEB)**: HMAC-SHA512 webhooks; throttle anti-banimento; STOP detection.
 - **Filas (event sourcing leve)**: `event_log` table + workers via cron. Trigger Postgres NUNCA faz HTTP.
-- **Rate limit (Upstash Redis)**: contador de **janela fixa** (`INCR` + `EXPIRE`) em `lib/ai/dispatcher/rate-limit.ts`, com fallback in-memory quando Redis falta. ⚠️ Aplicado hoje em apenas 2 pontos (webhook de captação e dispatcher de IA) — o surface público de auth está sem. Ver [`docs/threat-model.md`](docs/threat-model.md) §T1.
+- **Rate limit (Upstash Redis)**: contador de **janela fixa** (`INCR` + `EXPIRE`) em `lib/ai/dispatcher/rate-limit.ts`, com fallback in-memory quando Redis falta. Quem o chama hoje — reconte, não cite: `grep -rln 'checkRateLimit(' app lib --include='*.ts' | grep -v '\.test\.'`. Ver [`docs/threat-model.md`](docs/threat-model.md) §T1.
 - **AI (Vercel AI Gateway)**: Anthropic primário, OpenAI backup pra embeddings.
 - **Observability (Sentry)**: `beforeSend` scrubs PII (CPF/email/phone) e headers sensíveis.
 
@@ -29,7 +29,7 @@ Detalhes: [`docs/specs/01-spec-platform-base.md`](docs/specs/01-spec-platform-ba
 - Wrappers `ok()` / `fail()` em `lib/api/wrappers.ts`.
 - Auth dual: cookie session (frontend) ou `Authorization: Bearer tok_...` (server-to-server).
 - `X-Request-Id` em toda response, injetado em `proxy.ts` e correlacionado com o audit log.
-- `Idempotency-Key` é o contrato pretendido para POSTs de criação; **implementado hoje em 1 rota** (`lgpd/requests/[id]/approve`). Ver [`docs/current-state.md`](docs/current-state.md) §4.
+- `Idempotency-Key` é o contrato para POSTs de criação; duas rotas gravam recibo próprio (`lgpd/requests/[id]/approve` e `admin/tenants`), e o helper `lib/api/idempotency.ts` (reserva a chave antes do efeito, com janela de 60s; recibo de 24h em `idempotency_keys`) serve as demais que já o adotaram, inclusive a criação de agendamentos, onde REST e MCP chegam ao mesmo handler e o runtime do agente deriva a chave de `sourceJobId` + hash do input validado. Se o processo morrer entre o efeito e o recibo, uma nova execução após a reserva vencer ainda pode repetir o efeito. Ainda **não** cobre as demais rotas de criação. Meça em vez de citar: `grep -rln 'comIdempotencia' app --include='*.ts' | grep -v '\.test\.'`.
 - Detalhes: [`docs/specs/01-spec-platform-base.md`](docs/specs/01-spec-platform-base.md) §API.
 
 ## Fluxo de uma requisição
@@ -49,7 +49,7 @@ request → proxy.ts (X-Request-Id, x-pathname; isPublicPath? → bypass;
 ```
 
 **Superfícies não-cookie:** `/api/v1/cron/*` (Bearer `INTERNAL_CRON_SECRET`, fail-closed),
-`/api/internal/*` (`x-internal-secret`), `/api/mcp` (Bearer `tok_...` contra `api_tokens`),
+`/api/mcp` (Bearer `tok_...` contra `api_tokens`),
 `/api/v1/webhooks/*` (HMAC + path token). Inventário completo em
 [`docs/threat-model.md`](docs/threat-model.md) §1.
 

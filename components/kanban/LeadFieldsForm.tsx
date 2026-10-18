@@ -1,5 +1,8 @@
 "use client";
-import { useEffect } from "react";
+
+import { useActiveOrg } from "@/hooks/auth/AuthProvider";
+import { useT } from "@/hooks/i18n/useT";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -10,20 +13,30 @@ import { Textarea } from "@/components/ui/textarea";
 import { useEditLead } from "@/hooks/kanban/useUpdateLead";
 import type { Lead } from "@/lib/types/leads";
 import { updateLeadSchema, type UpdateLeadInput } from "@/lib/schemas/leads";
-import { parseReaisToCents } from "@/lib/money";
+import { MOEDA_PADRAO, parseReaisToCents, simboloDaMoeda } from "@/lib/money";
+import { soChavesAlteradas } from "@/lib/leads/custom-fields-so-diff";
+import { CustomFieldsEditor, type CustomFieldDef } from "@/components/contacts/CustomFieldsEditor";
+import { ContactTagsEditor } from "@/components/inbox/ContactTagsEditor";
 import { EcoDoValor } from "./EcoDoValor";
 
+/**
+ * As etiquetas do negócio SAÍRAM deste formulário (#2979): quem as edita é o
+ * `ContactTagsEditor`, que grava na hora em `crm_leads.tags`. Manter um
+ * `tagsRaw` aqui seria pior do que redundância — "Salvar" reenviaria a lista
+ * carregada na abertura do dossiê e DESFARIA em silêncio a etiqueta que a
+ * pessoa acabou de criar no editor.
+ */
 interface FormShape {
   title: string;
   description: string;
   valueReais: string;
-  tagsRaw: string;
   expected_close_date: string;
 }
 
 interface Props {
   lead: Lead;
   pipelineId: string;
+  fieldDefs?: CustomFieldDef[];
   /** Quando o salvamento dá certo. O dossiê NÃO fecha aqui — ver abaixo. */
   onSaved?: () => void;
   /** O dossiê não tem "cancelar"; o diálogo tem. */
@@ -44,15 +57,26 @@ function centsToReais(cents: number | null | undefined): string {
  * registro justamente de quem o produziu — a funcionalidade que prova "sua ação
  * fica registrada" provaria isso para todo mundo menos para o autor.
  */
-export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
+export function LeadFieldsForm({ lead, pipelineId, fieldDefs = [], onSaved, onCancel }: Props) {
+  const t = useT();
+  const org = useActiveOrg();
+  // A moeda do negócio JÁ GRAVADO vence: trocar a moeda da empresa não
+  // reescreve o que nasceu antes, e o cartão e o dossiê mostram a persistida.
+  const moedaDoValor = lead.currency ?? org?.currency ?? MOEDA_PADRAO;
   const edit = useEditLead(pipelineId);
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>(lead.custom_fields ?? {});
+  // A RÉGUA do diff (issue #2132): o valor carregado ao abrir. Só o que a
+  // pessoa mudar daqui vai viajar — devolver o objeto inteiro sobrescrevia o
+  // que outra pessoa (ou o MCP `crm_update_lead`) mudou com a ficha aberta.
+  const [camposCarregados, setCamposCarregados] = useState<Record<string, unknown>>(
+    lead.custom_fields ?? {},
+  );
 
   const form = useForm<FormShape>({
     defaultValues: {
       title: lead.title,
       description: lead.description ?? "",
       valueReais: centsToReais(lead.value_cents),
-      tagsRaw: (lead.tags ?? []).join(", "),
       expected_close_date: lead.expected_close_date ?? "",
     },
   });
@@ -62,24 +86,20 @@ export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
       title: lead.title,
       description: lead.description ?? "",
       valueReais: centsToReais(lead.value_cents),
-      tagsRaw: (lead.tags ?? []).join(", "),
       expected_close_date: lead.expected_close_date ?? "",
     });
+    setCustomFields(lead.custom_fields ?? {});
+    setCamposCarregados(lead.custom_fields ?? {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lead.id]);
 
   async function onSubmit(values: FormShape) {
-    const tags = values.tagsRaw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-
     const reais = values.valueReais.trim();
     let valueCents: number | null = null;
     if (reais.length > 0) {
       valueCents = parseReaisToCents(reais);
       if (valueCents === null) {
-        form.setError("valueReais", { message: "Valor inválido" });
+        form.setError("valueReais", { message: t("Valor inválido") });
         return;
       }
     }
@@ -88,14 +108,17 @@ export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
       title: values.title.trim(),
       description: values.description.trim() ? values.description.trim() : null,
       value_cents: valueCents,
-      tags,
       expected_close_date: values.expected_close_date || null,
+      // Só o que a pessoa alterou (issue #2132) — o merge continua do servidor.
+      ...(fieldDefs.length > 0
+        ? { custom_fields: soChavesAlteradas(camposCarregados, customFields) }
+        : {}),
     };
 
     const parsed = updateLeadSchema.safeParse(patch);
     if (!parsed.success) {
       const first = parsed.error.issues[0];
-      toast.error(first?.message ?? "Dados inválidos");
+      toast.error(first?.message ?? t("Dados inválidos"));
       return;
     }
 
@@ -104,7 +127,10 @@ export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
         leadId: lead.id,
         patch: parsed.data as UpdateLeadInput,
       });
-      toast.success("Lead atualizado");
+      // O que acabou de gravar vira a nova régua: o segundo salvamento não
+      // reenvia o primeiro, e uma limpeza alheia no intervalo não é atropelada.
+      setCamposCarregados({ ...customFields });
+      toast.success(t("Lead atualizado"));
       onSaved?.();
     } catch {
       // toast already shown
@@ -115,7 +141,7 @@ export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="title">Título</Label>
+          <Label htmlFor="title">{t("Título")}</Label>
           <Input
             id="title"
             {...form.register("title", { required: true, minLength: 2 })}
@@ -123,28 +149,30 @@ export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="description">Descrição</Label>
+          <Label htmlFor="description">{t("Descrição")}</Label>
           <Textarea id="description" rows={3} {...form.register("description")} />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
-            <Label htmlFor="valueReais">Valor (R$)</Label>
+            {/* O rótulo segue a moeda do NEGÓCIO (a organização é a reserva):
+                  `R$` em duro mentia para quem opera em euro. */}
+            <Label htmlFor="valueReais">{t("Valor")} ({simboloDaMoeda(moedaDoValor)})</Label>
             <Input
               id="valueReais"
               inputMode="decimal"
               placeholder="0,00"
               {...form.register("valueReais")}
             />
-            <EcoDoValor control={form.control} />
+            <EcoDoValor control={form.control} moeda={moedaDoValor} />
             {form.formState.errors.valueReais && (
               <p className="text-xs text-error-fg">
-                {form.formState.errors.valueReais.message}
+                {t(form.formState.errors.valueReais.message ?? "")}
               </p>
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="expected_close_date">Fechamento previsto</Label>
+            <Label htmlFor="expected_close_date">{t("Fechamento previsto")}</Label>
             <Input
               id="expected_close_date"
               type="date"
@@ -154,18 +182,40 @@ export function LeadFieldsForm({ lead, pipelineId, onSaved, onCancel }: Props) {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="tagsRaw">Tags (separadas por vírgula)</Label>
-          <Input id="tagsRaw" placeholder="vip, recompra" {...form.register("tagsRaw")} />
+          {/* A etiqueta do NEGÓCIO (#2979): o MESMO editor do Inbox, gravando
+              na OUTRA caixa — `crm_leads.tags` por `PATCH /api/v1/leads/{id}`,
+              nunca o perfil do contato. Ele grava na hora; por isso o dossiê
+              não carrega mais o campo de texto livre que substituía a lista. */}
+          <p className="text-sm font-medium">{t("Tags do negócio")}</p>
+          <ContactTagsEditor
+            entityType="lead"
+            entityId={lead.id}
+            pipelineId={pipelineId}
+            orgId={org?.orgId ?? ""}
+            tags={lead.tags ?? []}
+          />
         </div>
+
+        {fieldDefs.length > 0 && (
+          <div className="space-y-2 border-t border-border pt-4">
+            <p className="text-sm font-medium">{t("Campos do funil")}</p>
+            <CustomFieldsEditor
+              fields={fieldDefs}
+              value={customFields}
+              onChange={setCustomFields}
+              mode="lead"
+            />
+          </div>
+        )}
 
       <div className="flex justify-end gap-2">
         {onCancel && (
           <Button type="button" variant="ghost" onClick={onCancel} disabled={edit.isPending}>
-            Cancelar
+            {t("Cancelar")}
           </Button>
         )}
         <Button type="submit" disabled={edit.isPending}>
-          {edit.isPending ? "Salvando…" : "Salvar"}
+          {edit.isPending ? t("Salvando…") : t("Salvar")}
         </Button>
       </div>
     </form>

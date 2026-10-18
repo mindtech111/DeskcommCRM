@@ -17,13 +17,33 @@ import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { fail } from "@/lib/api/wrappers";
-import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
+import { loadAuthUser } from "@/lib/auth/server";
+import { orgAtivaDaApi } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
 /** Vida da URL assinada. Curta de propósito: se vazar, expira sozinha. */
 const SIGNED_TTL_SECONDS = 300;
+
+/**
+ * Quanto o browser guarda o próprio redirect.
+ *
+ * Sem isto a lista de conversas refazia a rota inteira — sessão, organização
+ * ativa, SELECT em `contacts` e `createSignedUrl` — uma vez por foto, a cada
+ * render. Com 39 contatos com foto numa instalação pequena isso é ~3s de
+ * trabalho de servidor por carga de lista, e o Realtime invalida a lista a cada
+ * mensagem que chega.
+ *
+ * `private` é obrigatório e não é detalhe: a autorização desta rota é por
+ * organização da sessão, então um cache compartilhado (CDN, proxy) que
+ * guardasse a resposta serviria o rosto de um contato para outro tenant.
+ *
+ * Tem que ser MENOR que SIGNED_TTL_SECONDS, senão o browser reusa um redirect
+ * que aponta para uma assinatura já vencida e a foto some. A folga de 60s cobre
+ * o caso de o redirect ser seguido no último instante da janela.
+ */
+const BROWSER_CACHE_SECONDS = 240;
 
 export async function GET(
   _req: NextRequest,
@@ -33,7 +53,9 @@ export async function GET(
   const { id } = await ctx.params;
 
   const authUser = await loadAuthUser();
-  const activeOrg = authUser ? await resolveActiveOrg(authUser) : null;
+  const ativa = await orgAtivaDaApi(authUser, requestId);
+  if (!ativa.ok) return ativa.response;
+  const activeOrg = ativa.org;
   if (!activeOrg) {
     return fail("no_active_org", "No active organization.", 403, { requestId });
   }
@@ -63,5 +85,13 @@ export async function GET(
     return new Response(null, { status: 404 });
   }
 
-  return Response.redirect(signed.signedUrl, 307);
+  // Response.redirect() devolve headers imutáveis — não dá pra anexar o
+  // Cache-Control depois. Por isso o 307 é montado à mão.
+  return new Response(null, {
+    status: 307,
+    headers: {
+      Location: signed.signedUrl,
+      "Cache-Control": `private, max-age=${BROWSER_CACHE_SECONDS}`,
+    },
+  });
 }

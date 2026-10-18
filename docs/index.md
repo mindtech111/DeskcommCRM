@@ -10,8 +10,12 @@ audited_against: origin/main @ 789dfa6 (v1.0.0, 2026-07-27)
 
 # Índice da documentação — DeskcommCRM
 
-Mapa dos **119** arquivos `.md` de `docs/`, espalhados por **23** subpastas — régua:
-`git ls-files 'docs/**/*.md' | wc -l`. Existe porque a documentação cresceu sem ponto
+Mapa dos **154** arquivos `.md` de `docs/`, espalhados por **20** subpastas — medido em
+2026-08-14, com as réguas ao lado: `git ls-files 'docs/**/*.md' | wc -l` e
+`git ls-files 'docs/**/*.md' | sed 's|^docs/||;s|/.*||' | sort -u | wc -l`. Os dois números
+estavam errados (149 e 24) e a segunda régua nem existia — é a mesma classe que
+[`audits/2026-08-14-afirmacoes-de-estado.md`](audits/2026-08-14-afirmacoes-de-estado.md)
+cataloga. Existe porque a documentação cresceu sem ponto
 de entrada: sem este índice, humano e agente não acham o que já foi decidido e
 reescrevem por cima.
 
@@ -32,8 +36,10 @@ de menor precedência e registre.
 | [`AGENTS.md`](../AGENTS.md) | Contrato para agentes de código (qualquer ferramenta) |
 | [`CLAUDE.md`](../CLAUDE.md) | **Doutrina não-negociável.** Convenções, anti-patterns, Definition of Done |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Como contribuir |
+| [`docs/apostila-contribuidor.md`](apostila-contribuidor.md) | **Apostila passo a passo para leigos (e para a IA deles):** instalar as ferramentas, subir o ambiente local, desenvolver, testar com Playwright e abrir o PR |
 | [`CHANGELOG.md`](../CHANGELOG.md) | Mudanças por versão (SemVer). **Quem roda VPS lê antes de `update.sh`** — mudança que exige ação manual aparece sob "⚠️ Requer atenção" |
 | [`docs/current-state.md`](current-state.md) | **O que está pronto, incompleto e quebrado hoje** |
+| [`.agents/skills/`](../.agents/skills/deskcomm-instalar/SKILL.md) | **Guias do assistente** — instalar, montar cliente por nicho, métricas, prompt, contribuir. Skills lidas por Claude Code, Codex, Cursor, OpenCode e Antigravity (não confundir com as *Skills* do agente de IA, na tela IA › Skills) |
 
 ## 2. Produto e intenção
 
@@ -71,18 +77,46 @@ Detalham schema SQL e payloads exatos. **Consulte antes de modelar qualquer cois
 | [`specs/14`](specs/14-contrato-governanca-agentes-externos.md) | Contrato para agentes de IA externos |
 | [`specs/15`](specs/15-spec-casos-humanos.md) | Casos humanos (IA delega a humano) |
 | [`specs/16`](specs/16-spec-tres-papeis-do-agente.md) | **Três papéis do agente** — Conversador / Operador / Segurança |
+| [`specs/17`](specs/17-spec-conversa-vira-lead.md) | **A conversa vira lead** — o elo entre atendimento e CRM |
+| [`specs/17`](specs/17-spec-indice-de-atrito.md) | **Índice de Atrito** — medir o propósito (menor atrito p/ os dois lados), não a atividade |
+| [`specs/18`](specs/18-spec-voice-calls-wacalls.md) | Chamada de voz WhatsApp (WaCalls) — rascunho, sem sub-PRD dedicado |
+| [`specs/extensoes-declarativas-v1.md`](specs/extensoes-declarativas-v1.md) | **Extensões declarativas v1** — pacote JSON estrito, catálogo admitido pelo dono da instalação, ativação por organização, guia no hub CRM |
+| [`integracao/webhooks-de-saida.md`](integracao/webhooks-de-saida.md) | Webhook de saída do lado de quem recebe: cabeçalhos, assinatura com carimbo de tempo, id de entrega, exemplos em Node e Python |
 | [`specs/RECONCILIATION-LOG.md`](specs/RECONCILIATION-LOG.md) | Log de reconciliação entre specs |
 
 ## 4. Doutrina e arquitetura
 
 | Doc | Conteúdo |
 |---|---|
-| [`doctrine/sistema-vivo.md`](doctrine/sistema-vivo.md) | **Doutrina do Sistema Vivo** — 5 invariantes + Living System Checklist (item 13 do DoD) |
+| [`doctrine/sistema-vivo.md`](doctrine/sistema-vivo.md) | **Doutrina do Sistema Vivo — a LEI.** 7 invariantes + regra do tempo + Living System Checklist (item 13 do DoD) |
+| [`doctrine/sistema-vivo/`](doctrine/sistema-vivo/README.md) | **Manual do Sistema Vivo** — 8 capítulos plugáveis (princípio universal + aplicação de referência). O *porquê* de cada invariante, e como adotar a doutrina em outro sistema |
+| [`doctrine/restricao-de-canal.md`](doctrine/restricao-de-canal.md) | Auto-restrição × hetero-restrição de canais externos; contrato de parâmetros derivado |
+| [`doctrine/separacao-fala-e-operacao.md`](doctrine/separacao-fala-e-operacao.md) | Vocabulário interno nunca vaza para o cliente |
+| [`doctrine/packaging.md`](doctrine/packaging.md) | **Doutrina de Packaging — a LEI.** 8 invariantes + política de canais + checklist de release (item 15 do DoD) |
+| [`doctrine/prova-em-par.md`](doctrine/prova-em-par.md) | **Prova em Par — emenda ao item 12 do DoD.** Caso de aceite que atravessa agente de IA mede tela + ferramenta com o mesmo texto cru, e só conta quando os dois concordam |
+| [`doctrine/destrutivo-pede-confirmacao.md`](doctrine/destrutivo-pede-confirmacao.md) | Ação destrutiva pede confirmação que **nomeia o alvo** — dois botões gêmeos, o mesmo contrato |
+| [`doctrine/extensoes.md`](doctrine/extensoes.md) | **Doutrina de Extensões — a LEI.** Núcleo × extensão pela pergunta "com zero ativações a operação comum continua inteira?" + 13 não-negociáveis, com as políticas do DEC-004 (item 18 do DoD) |
+| [`specs/19`](specs/19-spec-console-de-agencia.md) | **Console de Agência** — operar N organizações clientes; unidade de cobrança decidida (retainer por cliente operado). Lei em [`doctrine/operacao-de-agentes.md`](doctrine/operacao-de-agentes.md) |
+| [`adr/0001-packaging-e-distribuicao.md`](adr/0001-packaging-e-distribuicao.md) | ADR do packaging: namespace, os 3 packages, e o que foi recusado |
+| [`adr/0002-tabelas-de-modulo-num-banco-so.md`](adr/0002-tabelas-de-modulo-num-banco-so.md) | **Aceita em 17/09/2026.** Tabelas de módulo opcional: um banco só, `public`, criadas por função provisionadora fixa quando o módulo é instalado |
+| [`adr/0003-perfil-declarativo-v2-portas-nomeadas-e-vitrine.md`](adr/0003-perfil-declarativo-v2-portas-nomeadas-e-vitrine.md) | **Aceita em 17/09/2026.** Perfil declarativo v2 das extensões: portas nomeadas e o metadado de loja no catálogo |
+| [`adr/0004-cobranca-do-revendedor.md`](adr/0004-cobranca-do-revendedor.md) | **Aceita em 29/09/2026.** Cobrança do revendedor: o terceiro eixo de dinheiro — o dono da instalação cobra as empresas que atende; capacidade do núcleo com chave, desligada por padrão; revisa a condição 2 da ADR-0002 só para este caso |
+| [`adr/0005-plataforma-de-modulos-de-terceiro.md`](adr/0005-plataforma-de-modulos-de-terceiro.md) | **Aceita em 14/10/2026** (escolhas 1–4 pela recomendação, delegadas pelo dono; a 5 segue aberta). Plataforma de módulos de terceiro: o host compila o schema declarado, código de terceiro nunca entra no processo. Onda 1a construída no #2334 (migration 0611); o que falta, na seção *Estado da construção*. Spec: [`specs/modulos-dados-declarados-v1.md`](specs/modulos-dados-declarados-v1.md); caso de prova: [`research/modulos/pagamentos-e-fiscal.md`](research/modulos/pagamentos-e-fiscal.md) |
 | [`architecture/agent-turn.html`](architecture/agent-turn.html) | Diagrama do turno do agente (inbound → guardrails → outbound) |
+| [`architecture/agenda-no-turno.md`](architecture/agenda-no-turno.md) | Fonte de horários locais de reservas, releitura após ações e registros do próximo turno |
+| [`architecture/remetente-do-lembrete.md`](architecture/remetente-do-lembrete.md) | Canal dos lembretes por serviço, origem da reserva, ambiguidade e ciclo dos avisos |
+| [`specs/pre-go-live-whatsapp.md`](specs/pre-go-live-whatsapp.md) | Modo de teste do WhatsApp por canal: lista de telefones, abertura ao público e compatibilidade com autorização por origem |
+| [`specs/19`](specs/19-spec-console-de-agencia.md) | **Console de Agência** — operar N organizações clientes; unidade de cobrança decidida (retainer por cliente operado). Lei em [`doctrine/operacao-de-agentes.md`](doctrine/operacao-de-agentes.md) |
+| [`architecture/pre-go-live-whatsapp.architecture.json`](architecture/pre-go-live-whatsapp.architecture.json) | Mapa do pré-go-live, configuração administrativa e gate compartilhado |
+| [`architecture/extensoes-declarativas.architecture.json`](architecture/extensoes-declarativas.architecture.json) | Mapa vivo das extensões declarativas — admissão, download, recibos, ativação por organização e guia no CRM |
+| [`architecture/teto-de-orcamento.architecture.json`](architecture/teto-de-orcamento.architecture.json) | **Mapa vivo do teto de gasto com IA** — quem alimenta o gate, o que a parada NÃO desfaz sozinha, e o laço de retorno (invariante 7) |
+| [`release/teto-de-orcamento.md`](release/teto-de-orcamento.md) | **Nota de release para quem opera uma VPS** — o que muda, o que fazer (nada), a troca de rótulo de R$ para US$ e como ligar a proteção |
 | [`research/architecture-diagrams.md`](research/architecture-diagrams.md) | Diagramas de arquitetura |
+| [`research/extensoes/`](research/extensoes/README.md) | Plataforma de extensões — arquitetura aprovada, bancada concluída e primeira integração provada em tela; acompanha PROG-021 |
 | [`research/reference-synthesis.md`](research/reference-synthesis.md) | Arquitetura herdada da referência WAHA |
 | [`research/followup-reference-mining.md`](research/followup-reference-mining.md) | Pesquisa do motor de follow-up |
 | [`threat-model.md`](threat-model.md) | **Superfície de ataque real do self-host** |
+| [`alertas-de-seguranca-triados.md`](alertas-de-seguranca-triados.md) | Razão de cada alerta **descartado** no painel do GitHub, e o que a varredura por classe achou que o scanner não vê |
 
 ## 5. Design system
 
@@ -103,8 +137,19 @@ acessibilidade).
 | [`DEPLOY-CHECKLIST.md`](DEPLOY-CHECKLIST.md) | Checklist de deploy |
 | [`ATUALIZANDO.md`](ATUALIZANDO.md) | `update.sh`, `restore.sh`, `healthcheck.sh` |
 | [`runbooks/deploy.md`](runbooks/deploy.md) | **Deploy em produção — os dois `-f` do compose, verificação pós-deploy** |
+| [`runbooks/oracle-arm64.md`](runbooks/oracle-arm64.md) | **Oracle Ampere A1/Ubuntu** — VM ARM64, rede, instalação, atualização, backup e aceite real |
+| [`runbooks/remediar-worker-congelado.md`](runbooks/remediar-worker-congelado.md) | **Incidente: o worker congelado** — diagnóstico (`diagnostico.sh`), impacto medido e as duas rotas de remediação. **Ainda não ensaiado** |
+| [`runbooks/ativar-packaging.md`](runbooks/ativar-packaging.md) | **Ativação da doutrina de packaging** — os 3 passos que não cabem num PR (pacote público, check obrigatório, primeira release) |
+| [`runbooks/custo-e-cota-do-supabase.md`](runbooks/custo-e-cota-do-supabase.md) | **“Meu Supabase estourou a cota”** — como medir a origem do consumo, os dois intervalos da fila e as duas tabelas que só crescem |
 | [`runbooks/waha-hostgator.md`](runbooks/waha-hostgator.md) | Runbook do WAHA em produção |
+| [`runbooks/cloudpanel.md`](runbooks/cloudpanel.md) | **VPS que já tem CloudPanel/Nginx nas portas 80/443** — o modo proxy externo do kit, o endereço fixo para o Nginx do host e o 403 do webhook global |
+| [`saas/README.md`](saas/README.md) | **Revender como SaaS** — a jornada do dono da instalação, do servidor ao primeiro cliente pagando; modelo, painel do dono, primeiro cliente, custo por cliente |
+| [`saas/cobranca.md`](saas/cobranca.md) | **Cobrar os clientes** — Stripe × Asaas, planos, teste e publicação, régua de atraso, troca de plano, nota fiscal, caminho manual |
+| [`saas/contrato-e-lgpd.md`](saas/contrato-e-lgpd.md) | **Contrato e LGPD com o cliente final** — controlador × operador, cláusulas para o advogado revisar, transferência internacional pela IA |
+| [`saas/aulas/README.md`](saas/aulas/README.md) | **Roteiros de aula** do caminho SaaS — cinco aulas que apontam para os guias acima |
+| [`saas/coolify.md`](saas/coolify.md) | **VPS com Coolify** — CRM e banco (Supabase self-hosted) na mesma VPS, atrás do proxy do Coolify; painel fechado e acessado por túnel; consumo medido |
 | [`runbooks/ai-credentials-rotation.md`](runbooks/ai-credentials-rotation.md) | Rotação de credenciais de IA |
+| [`runbooks/css-personalizado.md`](runbooks/css-personalizado.md) | **CSS personalizado que trancou a tela** — `?sem_css=1` e o `delete` em `platform_config` |
 | [`../SECURITY.md`](../SECURITY.md) | Política de reporte de vulnerabilidade |
 
 ## 7. Testes e QA
@@ -114,20 +159,25 @@ acessibilidade).
 | [`testing/user-journey-map.md`](testing/user-journey-map.md) | **Mapa de jornadas vivo** — casos, prioridade `[P0]`, achados. Atualizar sempre |
 | [`testing/HANDOFF-vps-qa.md`](testing/HANDOFF-vps-qa.md) | Receita do ambiente fresco estilo VPS |
 | [`harness-audit.md`](harness-audit.md) | **Auditoria do harness** — 20 itens + nível de maturidade |
+| [`audits/2026-08-14-afirmacoes-de-estado.md`](audits/2026-08-14-afirmacoes-de-estado.md) | **393 afirmações de estado medidas contra a fonte**, cada uma com o comando que a responde. É o retrato datado que sustenta as correções de doutrina desta data — releia a data antes de citar qualquer número dele |
+| [`audits/2026-08-14-alinhamento-stable-v1.3.0.md`](audits/2026-08-14-alinhamento-stable-v1.3.0.md) | O que a tag `v1.3.0` — que é o kit que roda na VPS, e não a `main` — de fato contém |
 | [`../tests/e2e/README.md`](../tests/e2e/README.md) | Como rodar os E2E |
 
 ## 8. Execução — planos, épicos, handoffs
 
 Documentação de *processo*. Alta rotatividade; trate como estado, não como contrato.
 
-**Convenção observada:** épico **vivo** mantém o HANDOFF na **raiz** do repo; épico
-**encerrado** é arquivado em [`handoffs/`](handoffs/). Use isso para saber o que está em voo.
+**Convenção:** todo `HANDOFF*.md` vive em [`handoffs/`](handoffs/), indexado
+pelo [`handoffs/README.md`](handoffs/README.md) — encerrado ou não. Até
+setembro de 2026 valia "épico **vivo** mantém o HANDOFF na **raiz**", e a regra
+não segurou: 12 arquivos se acumularam na raiz e quatro carregavam identificador
+de produção num repositório público (#638). O gate que impede a volta é
+`tests/unit/handoff-na-raiz-nao-volta.test.ts`.
 
-- **Raiz (em voo):** `HANDOFF.md` (follow-up), `HANDOFF-harness-evolution.md`, `HANDOFF-operacao-visivel.md`
-- [`handoffs/`](handoffs/) — arquivados: casos humanos, inbox multimodal, CRM vivo, LGPD, wave1-devvivo, contrato wave5, briefing CRM vivo
+- [`handoffs/`](handoffs/) — **todo** o arquivo de handoff, com o índice e a convenção em [`handoffs/README.md`](handoffs/README.md). Quantos: `git ls-files 'docs/handoffs/HANDOFF*.md' | wc -l` (20 em 2026-09-26), mais briefing, contrato e `waves/`
 - [`stories/`](stories/) — épicos e stories (`epics/MASTER.md` = plano por epic/wave)
 - [`superpowers/`](superpowers/) — `plans/` e `specs/` datados por onda, mais `handoffs/`
-- [`growth/`](growth/) — material de crescimento · [`brand/`](brand/) — marca · [`white-label.md`](white-label.md) — instalação com marca própria
+- [`growth/`](growth/) — material de crescimento · [`brand/`](brand/) — marca · [`white-label.md`](white-label.md) — instalação com marca própria, também em [en](white-label.en.md) e [es](white-label.es.md) (traduções seladas pelo hash do original; ver `scripts/selar-traducao.ts`)
 - [`../plan/`](../plan/) — backlog do gov-loop (`features.json` 31/31, `phases.md`, `progress.md`)
 - [`../loop/`](../loop/) — máquina do gov-loop (`LOOP.md`, `CHECKPOINT.md`, `checkpoints/G1..G6-report.md` + `.approved`)
 - [`../tasks/todo.md`](../tasks/todo.md) — workflow de construção original (Fase 0 → PRD → specs)
@@ -148,8 +198,12 @@ anterior à v1.0.0; regenere (`/graphify .`) antes de confiar em detalhe fino.
   "Próximo", apesar de o gatilho (`loop/checkpoints/G6.approved`) existir.
 - `docs/diagrams/` não tem `.md` e não foi inventariado. `docs/evidence/` é evidência visual
   (18 PNGs), não documentação de leitura.
-- `docs/architecture/` contém só o diagrama do agent-turn; a doutrina (`CLAUDE.md`, DoD item 13)
-  pede que o "mapa vivo" da arquitetura reflita toda peça nova com ≥2 arestas — **NÃO IDENTIFICADO**
-  se isso está sendo cumprido, e é a lacuna documental mais relevante que sobrou.
+- `docs/architecture/` reúne mapas JSON e seus renders disponíveis. Consulte o
+  [catálogo de mapas](architecture/README.md) e os arquivos do diretório; a contagem
+  muda com as entregas. A doutrina exige representar peças novas e suas relações,
+  e `tests/unit/mapas-de-arquitetura.test.ts` verifica a forma e os kinds do runtime.
+  Esse gate não comprova, sozinho, que toda funcionalidade tem um mapa.
 - `docs/growth/` (3 docs) e `docs/brand/` (1) não foram lidos em detalhe — classificados por
   nome de pasta, portanto **INFERIDO**.
+
+- [Acompanhamento administrativo por sessão](support-sessions.md) — autoridade, somente leitura, saída e contratos OAuth.

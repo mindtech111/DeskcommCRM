@@ -3,9 +3,14 @@
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 
+import { ipDoCliente } from "@/lib/http/ip-do-cliente";
 import { createClient } from "@/lib/supabase/server";
 import { audit } from "@/lib/audit";
-import { profileSchema, type ProfileInput } from "@/lib/schemas/settings";
+import {
+  profileSchema,
+  SEM_PREFERENCIA_DE_IDIOMA,
+  type ProfileInput,
+} from "@/lib/schemas/settings";
 import { resolveActiveOrg, loadAuthUser } from "@/lib/auth/server";
 
 export type UpdateProfileResult =
@@ -24,13 +29,15 @@ export async function updateProfile(input: ProfileInput): Promise<UpdateProfileR
   const supabase = await createClient();
   const hdrs = await headers();
   const requestId = hdrs.get("x-request-id");
-  const ip = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+  const ip = ipDoCliente(hdrs);
   const userAgent = hdrs.get("user-agent") ?? null;
 
   const { error } = await supabase.auth.updateUser({
     data: {
       full_name: parsed.data.full_name ?? null,
-      locale: parsed.data.locale,
+      // `null` é o que faz a cadeia seguir para a organização: o resolvedor
+      // de idioma lê a preferência primeiro e só cai na empresa se ela faltar.
+      locale: parsed.data.locale === SEM_PREFERENCIA_DE_IDIOMA ? null : parsed.data.locale,
       timezone: parsed.data.timezone,
       avatar_url: parsed.data.avatar_url ?? null,
     },
@@ -57,7 +64,7 @@ export async function updateProfile(input: ProfileInput): Promise<UpdateProfileR
   });
 
   // Best-effort emit (event_log is org-scoped; skip if no org).
-  if (activeOrg) {
+  if (activeOrg && authUser.support?.access_mode !== "support_readonly") {
     await supabase
       .rpc("emit_event", {
         p_event_type: "user.profile_updated",

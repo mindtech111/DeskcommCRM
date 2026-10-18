@@ -2,8 +2,11 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+
+import { safeNext } from "@/lib/auth/safe-next";
 import { z } from "zod";
 
+import { ipDoCliente } from "@/lib/http/ip-do-cliente";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit, isServiceRoleConfigured } from "@/lib/audit";
 import { hashRecoveryCode } from "@/lib/auth/recovery-codes";
@@ -33,7 +36,7 @@ export async function useRecoveryCode(
 ): Promise<UseRecoveryCodeResult | void> {
   const hdrs = await headers();
   const requestId = hdrs.get("x-request-id");
-  const ip = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+  const ip = ipDoCliente(hdrs);
   const userAgent = hdrs.get("user-agent") ?? null;
 
   const parsed = inputSchema.safeParse({
@@ -124,7 +127,11 @@ export async function useRecoveryCode(
 
   // 6) Redirect to /login fresh — user logs in normally and re-enrolls MFA.
   const params = new URLSearchParams({ recovery_used: "1" });
-  if (next) params.set("next", next);
+  // Sanitiza aqui também: este `next` volta para /login e de lá alimenta o
+  // redirect de signInWithPassword — carregar destino externo por este caminho
+  // daria na mesma coisa, só com um salto a mais.
+  const destino = safeNext(next, "");
+  if (destino) params.set("next", destino);
   redirect(`/login?${params.toString()}`);
 }
 

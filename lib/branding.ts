@@ -23,6 +23,8 @@ export type Branding = {
   name: string;
   /** URL do logo, ou `null` quando a marca deve aparecer como texto. */
   logoUrl: string | null;
+  /** Arte opcional preparada para o tema escuro; ausente preserva o logo padrão. */
+  logoDarkUrl?: string | null;
   /** Primeira letra do nome — usada onde só cabe um caractere (sidebar recolhida). */
   initial: string;
 };
@@ -51,11 +53,64 @@ export function resolveBranding(
 }
 
 /**
- * Tema visual da instalação (cores, fontes, favicon) — `APP_THEME` no `.env`.
+ * A marca da instalação — **SOMENTE em componente de servidor.**
+ *
+ * ⚠️ NÃO CHAME ISTO DE UM `"use client"`. Em client component use
+ * `useMarcaDaInstalacao()` (`lib/branding/contexto.tsx`), que recebe a marca por
+ * prop do servidor. A regra é vigiada por
+ * `tests/unit/marca-sem-divergencia-de-hidratacao.test.tsx`, que varre todo
+ * arquivo `"use client"` — comentário não reprova build, teste reprova.
+ *
+ * ── Por que a regra existe ───────────────────────────────────────────────────
+ *
+ * Esta função lê fontes DIFERENTES nos dois lados da fronteira, e as duas
+ * deixaram de concordar. No navegador ela lê `window.__PUBLIC_ENV__`, que desde
+ * a onda do logo carrega a marca RESOLVIDA (banco acima do `.env`). No servidor
+ * — inclusive no SSR de um client component, onde `window` não existe — ela lê
+ * `process.env`, que é só o `.env`. Numa instalação com logo gravado pela tela e
+ * `APP_LOGO_URL` vazio (o caso normal de quem sobe logo pela tela), o SSR
+ * renderizava o nome em `<span>` e o cliente hidratava um `<img>`: troca de tipo
+ * de elemento, React #418 em toda tela, árvore descartada e regerada.
+ *
+ * No SERVIDOR esta função continua lendo somente o `.env`. Páginas que precisam
+ * refletir a marca editada na tela devem usar `marcaDaSaida()` — por exemplo, o
+ * login, cujo texto precisa acompanhar o título da aba. Os demais call sites
+ * deste helper mantêm explicitamente o comportamento de fallback do ambiente.
+ *
+ * O ramo do navegador continua de pé porque a alternativa é pior: sem ele, um
+ * client component que voltasse a chamar `branding()` cairia no padrão do
+ * produto nos DOIS lados e mostraria a marca errada em SILÊNCIO. Divergir é
+ * barulhento (o console acusa), e barulhento é o modo de falhar que se conserta.
+ */
+/**
+ * A marca em vigor é a do PRODUTO — e é só então que o símbolo e o logotipo
+ * de `lib/branding/desenho.ts` podem aparecer.
+ *
+ * Duas condições, e as duas são necessárias: sem logo configurado E com o nome
+ * padrão. Quem só trocou o nome (para "Acme CRM") não pode receber um logotipo
+ * que soletra outro nome; quem só subiu um logo já tem o dele na tela. Trocar a
+ * cor de destaque não conta — a marca do produto continua sendo a que está
+ * escrita, só pintada de outro jeito.
+ */
+export function marcaEhADoProduto(marca: Pick<Branding, "name" | "logoUrl">): boolean {
+  return marca.logoUrl === null && marca.name === DEFAULT_APP_NAME;
+}
+
+export function branding(): Branding {
+  if (typeof window !== "undefined") {
+    const runtime = window.__PUBLIC_ENV__;
+    return resolveBranding(runtime?.APP_NAME, runtime?.APP_LOGO_URL);
+  }
+  return resolveBranding(process.env.APP_NAME, process.env.APP_LOGO_URL);
+}
+
+// ── Fork Mindtech ──────────────────────────────────────────────────────────
+/**
+ * Tema visual da instalação (fontes e neutros) — `APP_THEME` no `.env`.
  *
  * Mesmo motivo do nome/logo: a imagem é pré-buildada, então o tema tem de ser
  * escolhido em RUNTIME. Os temas moram no próprio código (tokens em
- * `app/globals.css` sob `[data-brand="<tema>"]`, arte em `public/brand/<tema>/`);
+ * `app/brand-themes.css` sob `[data-brand="<tema>"]`, arte em `public/brand/<tema>/`);
  * o `.env` só escolhe qual. Valor desconhecido ou vazio = tema padrão, idêntico
  * ao de antes desta variável existir.
  */
@@ -72,11 +127,3 @@ export function brandTheme(): BrandTheme {
   return resolveBrandTheme(process.env.APP_THEME);
 }
 
-/** Lê a marca da fonte correta em cada lado da fronteira servidor/navegador. */
-export function branding(): Branding {
-  if (typeof window !== "undefined") {
-    const runtime = window.__PUBLIC_ENV__;
-    return resolveBranding(runtime?.APP_NAME, runtime?.APP_LOGO_URL);
-  }
-  return resolveBranding(process.env.APP_NAME, process.env.APP_LOGO_URL);
-}
