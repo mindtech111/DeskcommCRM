@@ -1855,6 +1855,7 @@ esac
   # sobrevivia por acaso, pelo laço de preservação — e não é de acaso que a
   # entrevista precisa.
   envq APP_ACCENT_HEX "${APP_ACCENT_HEX:-}"
+  envq APP_THEME "${APP_THEME:-}"   # fork Mindtech: tema por instalação
   printf '# Endereço de suporte que o CLIENTE FINAL vê (conta suspensa, cobrança).\n'
   printf '# Vazio = a tela não mostra endereço nenhum.\n'
   envq SUPPORT_EMAIL "${SUPPORT_EMAIL:-}"

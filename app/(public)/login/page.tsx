@@ -32,6 +32,15 @@ export default async function LoginPage({
   return (
     <div className="space-y-6">
       <div className="space-y-1.5 text-center">
+        {/* Fork Mindtech: logo da instalação no login (o upstream mostra só o nome). */}
+        {marca.logoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={marca.logoUrl}
+            alt={marca.nome}
+            className="login-logo mx-auto mb-4 h-10 w-auto max-w-[16rem] object-contain"
+          />
+        )}
         <h1 className="text-2xl font-semibold tracking-tight">{t("Entrar")}</h1>
         <p className="text-sm text-muted-foreground">{marca.nome}</p>
       </div>
