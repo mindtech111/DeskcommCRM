@@ -1503,3 +1503,30 @@
     animation-iteration-count: infinite !important;
   }
 }
+
+/* ── Tela de entrada com tema (Fork Mindtech) — ver components/branding/PainelDaEntrada.tsx ── */
+.entrada{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr;min-height:100vh;background:var(--color-bg);}
+.entrada-painel{position:relative;overflow:hidden;display:flex;flex-direction:column;gap:1.25rem;
+  padding:1.25rem 1.5rem;background:#2b2621;color:#f2ece2;}
+.entrada-monograma{position:absolute;width:15rem;height:15rem;right:-4rem;top:-5.5rem;color:#c6a16a;opacity:.45;pointer-events:none;}
+.entrada-logo{position:relative;height:3.25rem;width:auto;max-width:13rem;}
+.entrada-chamada{position:relative;display:none;}
+.entrada-titulo{font-family:"InochiDisplay","Cinzel",Georgia,serif;font-size:2.4rem;line-height:1.15;letter-spacing:.01em;color:#f2ece2;max-width:19ch;}
+.entrada-texto{margin-top:1rem;font-size:1rem;line-height:1.6;color:#cbbfaf;max-width:40ch;}
+.entrada-rodape{position:relative;display:none;gap:1.5rem;font-size:.8125rem;}
+.entrada-rodape a{color:#cbbfaf;text-decoration:underline;text-underline-offset:3px;}
+.entrada-rodape a:hover,.entrada-rodape a:focus-visible{color:#f2ece2;}
+.entrada-form{display:flex;align-items:flex-start;justify-content:center;padding:2.5rem 1.5rem 3rem;}
+@media (min-width:1024px){
+  .entrada{grid-template-columns:minmax(0,5fr) minmax(0,4fr);grid-template-rows:1fr;}
+  .entrada-painel{justify-content:space-between;padding:3rem 3.5rem;}
+  .entrada-monograma{width:38rem;height:38rem;right:-12rem;top:auto;bottom:-9rem;}
+  .entrada-chamada,.entrada-rodape{display:flex;}
+  .entrada-chamada{flex-direction:column;margin-top:auto;margin-bottom:auto;}
+  .entrada-form{align-items:center;padding:3rem;}
+}
+@media (min-width:1440px){.entrada-titulo{font-size:2.9rem;}}
+/* no painel o logo já aparece: o do formulário sai (só com tema) */
+[data-brand="inochi"] .login-logo{display:none;}
+[data-brand="inochi"] .entrada-form h1{font-family:"InochiDisplay","Cinzel",Georgia,serif;font-size:1.9rem;font-weight:400;text-align:left;}
+[data-brand="inochi"] .entrada-form .text-center{text-align:left;}

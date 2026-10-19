@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { brandTheme } from "@/lib/branding";
 import { marcaDaSaida } from "@/lib/branding/saida";
 import { idiomaDoVisitante } from "@/lib/i18n/idiomaAnonimo";
 import { traduzir } from "@/lib/i18n/dicionario";
@@ -30,6 +31,9 @@ export default async function HomePage() {
     data: { user },
   } = await supabase.auth.getUser();
   if (user) redirect("/app");
+  // Fork Mindtech: com tema, a porta de entrada é o próprio login (privacidade e
+  // termos seguem linkados no painel da marca). Sem tema, a página pública fica.
+  if (brandTheme() !== "default") redirect("/login");
 
   const marca = await marcaDaSaida(null);
   const idioma = await idiomaDoVisitante(null);

@@ -2,7 +2,9 @@ import Link from "next/link";
 
 import { EntrarComGoogle } from "@/components/auth/EntrarComGoogle";
 import { LoginForm } from "@/components/auth/LoginForm";
+import { brandTheme } from "@/lib/branding";
 import { marcaDaSaida } from "@/lib/branding/saida";
+import { estadoDoProvedorGoogle } from "@/lib/auth/provedor-google";
 import { createClient } from "@/lib/supabase/server";
 import { idiomaDoVisitante } from "@/lib/i18n/idiomaAnonimo";
 import { traduzir } from "@/lib/i18n/dicionario";
@@ -28,6 +30,9 @@ export default async function LoginPage({
   );
   const t = (texto: string) => traduzir(texto, idioma);
   const marca = await marcaDaSaida(null);
+  // Fork Mindtech: com tema, o botão do Google só aparece se o provedor não está
+  // desligado — senão ele promete uma entrada que o clique recusa. Sem tema, como no upstream.
+  const mostrarGoogle = brandTheme() === "default" || (await estadoDoProvedorGoogle()) !== "desligado";
 
   return (
     <div className="space-y-6">
@@ -149,7 +154,7 @@ export default async function LoginPage({
         </div>
       )}
       <LoginForm next={next} />
-      <EntrarComGoogle next={next} />
+      {mostrarGoogle && <EntrarComGoogle next={next} />}
       <div className="space-y-2 text-center text-sm">
         <p>
           <Link

@@ -1,4 +1,6 @@
 import { LogotipoDoProduto } from "@/components/branding/MarcaDoProduto";
+import { PainelDaEntrada } from "@/components/branding/PainelDaEntrada";
+import { brandTheme } from "@/lib/branding";
 import { marcaEhADoProduto } from "@/lib/branding";
 import { marcaDaSaida } from "@/lib/branding/saida";
 import { createClient } from "@/lib/supabase/server";
@@ -53,6 +55,23 @@ export default async function PublicLayout({ children }: { children: React.React
     data: { user },
   } = await supabase.auth.getUser();
   const locale = (user?.user_metadata?.locale as string | undefined) ?? null;
+
+  // Fork Mindtech: instalação com tema ganha a tela dividida (painel da marca +
+  // formulário). O logo da casca sai daqui porque o painel já o mostra; sem tema,
+  // nada abaixo muda.
+  const tema = brandTheme();
+  if (tema !== "default") {
+    return (
+      <IdiomaProvider locale={locale}>
+        <div className="entrada">
+          <PainelDaEntrada tema={tema} nome={marca.nome} />
+          <main className="entrada-form">
+            <div className="w-full max-w-sm space-y-6">{children}</div>
+          </main>
+        </div>
+      </IdiomaProvider>
+    );
+  }
 
   return (
     <IdiomaProvider locale={locale}>
