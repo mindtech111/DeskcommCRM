@@ -256,6 +256,7 @@ services:
     environment:
       TZ: UTC
       INTERNAL_SECRET: ${INTERNAL_SECRET}
+      SCHEDULER_MINUTE_STEP: ${SCHEDULER_MINUTE_STEP:-5}
     logging: *default-logging
     networks: [internal]
 

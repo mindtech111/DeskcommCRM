@@ -35,10 +35,34 @@ export interface IntervalosDaFila {
  * limitado pelo teto, que é o que impede o laço de dormir através da janela do
  * `INBOUND_DEBOUNCE_MS`.
  */
-export function intervaloDeEspera(faltaMs: number | null, intervalos: IntervalosDaFila): number {
+export function intervaloDeEspera(
+  faltaMs: number | null,
+  intervalos: IntervalosDaFila,
+  claimsVaziosSeguidos = 0,
+): number {
   if (faltaMs === null) return intervalos.ociosoMs;
-  if (faltaMs <= 0) return intervalos.retryMs;
+  if (faltaMs <= 0) return recuoDoRetry(intervalos, claimsVaziosSeguidos);
   return Math.min(faltaMs, intervalos.ociosoMs);
+}
+
+/**
+ * Recuo exponencial do ritmo curto (egress do Supabase free, out/2026).
+ *
+ * "Há job vencido e o claim não trouxe nada" pode durar MUITO: um job pendente
+ * cuja lane tem outro job `running` (até `QUEUE_VISIBILITY_TIMEOUT_MS`, 10 min),
+ * ou o cap global cheio por turnos longos. Com o retry fixo de 250 ms, cada uma
+ * dessas janelas virava 4 transações de claim por segundo (begin + advisory lock
+ * + count(*) + claim + rollback) — medido em produção: ~21,6 milhões de
+ * `pg_advisory_xact_lock` e de `count(*)` no `pg_stat_statements`, o bastante
+ * para estourar a cota de egress de 5 GB/mês.
+ *
+ * Agora o 1º retry continua em `retryMs` (o pico não perde throughput), e cada
+ * claim vazio seguido dobra a espera até o teto `ociosoMs`. Um claim que traz
+ * trabalho, ou um relógio que diz "nada vencido", zera o contador.
+ */
+export function recuoDoRetry(intervalos: IntervalosDaFila, claimsVaziosSeguidos: number): number {
+  const n = Math.max(0, Math.min(claimsVaziosSeguidos, 30));
+  return Math.min(intervalos.retryMs * 2 ** n, Math.max(intervalos.ociosoMs, intervalos.retryMs));
 }
 
 export interface DepsDoLoopDaFila<J> {
@@ -64,6 +88,8 @@ export async function rodarLoopDaFila<J>(deps: DepsDoLoopDaFila<J>): Promise<voi
   // O relógio só é consultado quando a rodada anterior voltou vazia. Sob carga o
   // laço claima em sequência, no ritmo de hoje, sem pagar o statement extra.
   let ultimaTrouxe = true;
+  // Claims vazios seguidos com job JÁ vencido — governa o recuo do ritmo curto.
+  let vaziosSeguidos = 0;
 
   while (!deps.deveParar()) {
     let faltaMs: number | null = 0;
@@ -102,11 +128,15 @@ export async function rodarLoopDaFila<J>(deps: DepsDoLoopDaFila<J>): Promise<voi
     }
 
     deps.aoClaimar(claimados);
+    if (claimados.length > 0) vaziosSeguidos = 0;
     ultimaTrouxe = claimados.length > 0;
 
     if (claimados.length === 0 || deps.deveParar()) {
+      const espera = intervaloDeEspera(faltaMs, deps.intervalos, vaziosSeguidos);
+      // Só "vencido e não peguei" acumula; qualquer outra resposta zera.
+      vaziosSeguidos = claimados.length === 0 && faltaMs !== null && faltaMs <= 0 ? vaziosSeguidos + 1 : 0;
       try {
-        await deps.dormir(intervaloDeEspera(faltaMs, deps.intervalos));
+        await deps.dormir(espera);
       } catch {
         // Sinal de desligamento abortou a espera: sair é o comportamento certo,
         // e o `deveParar()` do topo confirmaria na volta de qualquer forma.

@@ -21,6 +21,19 @@ import { createLogger } from '../obs/logger';
 
 export const QUERY_TIMEOUT_MS = 60_000;
 const KEEPALIVE_INITIAL_DELAY_MS = 10_000;
+/**
+ * Quanto uma conexão ociosa fica no pool antes de fechar. O default do `pg` é
+ * 10 s: os laços do worker que dormem 10–15 s (drain do event_log, drain do CRM,
+ * cron) achavam a conexão morta a cada rodada e pagavam TCP+TLS+startup de novo
+ * — e, no pooler do Supabase, um `pgbouncer.get_auth` por reconexão (~451 mil
+ * medidos). 60 s cobre todos esses ritmos. `DB_POOL_IDLE_TIMEOUT_MS` ajusta.
+ */
+export const DB_POOL_IDLE_TIMEOUT_MS_PADRAO = 60_000;
+
+export function idleTimeoutDoPool(raw: string | undefined): number {
+  const parsed = raw === undefined ? Number.NaN : Number.parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DB_POOL_IDLE_TIMEOUT_MS_PADRAO;
+}
 
 export function createPool(
   databaseUrl: string,
@@ -46,6 +59,7 @@ export function createPool(
   const pool = new pg.Pool({
     connectionString: databaseUrl,
     max,
+    idleTimeoutMillis: idleTimeoutDoPool(process.env.DB_POOL_IDLE_TIMEOUT_MS),
     query_timeout: QUERY_TIMEOUT_MS,
     keepAlive: true,
     keepAliveInitialDelayMillis: KEEPALIVE_INITIAL_DELAY_MS,

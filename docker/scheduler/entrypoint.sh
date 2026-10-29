@@ -47,15 +47,26 @@ APP_ORIGIN="http://app:3000"
 # ⚠️ E o comentário fica AQUI, fora da string: dentro de CRONS= ele não seria
 # comentário, seria DADO — e crase em prosa dentro de aspas duplas o shell
 # EXECUTA. Foi o que quebrou o entrypoint na primeira tentativa desta linha.
+# CADÊNCIA DAS VARREDURAS DE REDE DE SEGURANÇA (egresso do Supabase). As
+# linhas marcadas `@lento` rodavam a cada minuto e são todas redundantes com
+# um caminho em tempo real (worker, webhook) ou só drenam atraso. Agora rodam
+# a cada SCHEDULER_MINUTE_STEP minutos (padrão 5). Ficam de minuto em minuto as
+# que têm prazo de gente esperando: agent-dispatcher, routing-worker,
+# campaign-worker, channel-pause-scheduler e agenda-google-sync (paginação).
+PASSO="${SCHEDULER_MINUTE_STEP:-5}"
+case "$PASSO" in ''|*[!0-9]*) echo "scheduler: SCHEDULER_MINUTE_STEP inválido ($PASSO) — usando 5" >&2; PASSO=5 ;; esac
+if [ "$PASSO" -lt 1 ] || [ "$PASSO" -gt 59 ]; then PASSO=5; fi
+if [ "$PASSO" -eq 1 ]; then LENTO="* * * * *"; else LENTO="*/$PASSO * * * *"; fi
+
 CRONS="
-* * * * *|240|api/v1/cron/prospecting
+@lento|240|api/v1/cron/prospecting
 * * * * *|25|api/v1/cron/agent-dispatcher
-* * * * *|25|api/v1/cron/followup-flow-worker
-* * * * *|45|api/v1/cron/event-log-drain
+@lento|25|api/v1/cron/followup-flow-worker
+@lento|45|api/v1/cron/event-log-drain
 * * * * *|25|api/v1/cron/routing-worker
 */5 * * * *|25|api/v1/cron/recover-stuck-messages
-* * * * *|25|api/v1/cron/proposta-travada
-* * * * *|45|api/v1/cron/webhook-replay
+@lento|25|api/v1/cron/proposta-travada
+@lento|45|api/v1/cron/webhook-replay
 */5 * * * *|25|api/v1/cron/storage-redaction?limit=50
 */5 * * * *|25|api/v1/cron/snooze-watcher
 */5 * * * *|60|api/v1/cron/handoff-devolucao
@@ -157,6 +168,7 @@ chmod 600 "$AUTH_FILE"
 : > "$DESTINO"
 echo "$CRONS" | while IFS='|' read -r quando timeout rota; do
   [ -n "$rota" ] || continue
+  [ "$quando" = "@lento" ] && quando="$LENTO"
   # `>/dev/null` só no STDOUT: o corpo da resposta é grande e não interessa aqui.
   # O STDERR era o que a redireção antiga (`>/dev/null 2>&1`) engolia junto — e
   # foi ali que a issue #1109 ficou seis versões invisível: o `sync-model-catalog`
