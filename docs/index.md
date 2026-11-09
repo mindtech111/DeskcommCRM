@@ -20,9 +20,9 @@ de entrada: sem este índice, humano e agente não acham o que já foi decidido 
 reescrevem por cima.
 
 **Regra de precedência quando dois docs discordam:**
-`CLAUDE.md` (doutrina) > `docs/specs/` (contrato técnico) > `docs/prd/` (intenção) >
-`HANDOFF-*.md` (estado de sessão) > README. Se achou divergência, corrija a fonte
-de menor precedência e registre.
+`AGENTS.md` (doutrina; `CLAUDE.md` é o mesmo arquivo) > `docs/specs/` (contrato técnico) >
+`docs/prd/` (intenção) > `HANDOFF-*.md` (estado de sessão) > README. Se achou divergência,
+corrija a fonte de menor precedência e registre.
 
 ---
 
@@ -33,8 +33,8 @@ de menor precedência e registre.
 | [`README.md`](../README.md) | O que é, quickstart de 5 min, stack, roadmap. Também em [EN](../README.en.md) / [ES](../README.es.md) |
 | [`VISION.md`](../VISION.md) | Posicionamento, por que self-host, para quem |
 | [`ARCHITECTURE.md`](../ARCHITECTURE.md) | Arquitetura em 1 página |
-| [`AGENTS.md`](../AGENTS.md) | Contrato para agentes de código (qualquer ferramenta) |
-| [`CLAUDE.md`](../CLAUDE.md) | **Doutrina não-negociável.** Convenções, anti-patterns, Definition of Done |
+| [`AGENTS.md`](../AGENTS.md) | **Doutrina não-negociável** — fonte única para qualquer agente. Convenções, anti-patterns, Definition of Done |
+| [`CLAUDE.md`](../CLAUDE.md) | O mesmo texto de `AGENTS.md` (symlink), que é o arquivo que o Claude Code abre |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Como contribuir |
 | [`docs/apostila-contribuidor.md`](apostila-contribuidor.md) | **Apostila passo a passo para leigos (e para a IA deles):** instalar as ferramentas, subir o ambiente local, desenvolver, testar com Playwright e abrir o PR |
 | [`CHANGELOG.md`](../CHANGELOG.md) | Mudanças por versão (SemVer). **Quem roda VPS lê antes de `update.sh`** — mudança que exige ação manual aparece sob "⚠️ Requer atenção" |
