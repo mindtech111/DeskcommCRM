@@ -8,13 +8,14 @@ const get = vi.hoisted(() => vi.fn());
 const bulkMutate = vi.hoisted(() => vi.fn());
 const bulkMutateAsync = vi.hoisted(() => vi.fn());
 const toastSuccess = vi.hoisted(() => vi.fn());
+const toastWarning = vi.hoisted(() => vi.fn());
 const membros = vi.hoisted(() => ({
   estado: { data: [] as Array<{ user_id: string; role: string; full_name: string | null }>, isPending: false },
 }));
 
 vi.mock("@/lib/api/client", () => ({ apiClient: { get, post: vi.fn(), patch: vi.fn() } }));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (chave: string) => chave }));
-vi.mock("sonner", () => ({ toast: { success: toastSuccess, warning: vi.fn(), error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: toastSuccess, warning: toastWarning, error: vi.fn() } }));
 vi.mock("@/hooks/auth/AuthProvider", () => ({
   useUser: () => ({ id: "u1", is_platform_admin: false }),
   useActiveOrg: () => ({ role: "manager" }),
@@ -193,10 +194,27 @@ describe("BulkActionBar — atribuir nunca desatribui (incidente 09/11/2026)", (
     expect(within(menu).queryByRole("menuitem", { name: /sem responsável|desatribuir/i })).not.toBeInTheDocument();
 
     await user.click(within(menu).getByRole("menuitem", { name: "Fernanda" }));
+    // Escolher o atendente não aplica: abre a confirmação com o nome e a contagem.
+    expect(bulkMutate).not.toHaveBeenCalled();
+    const caixa = await screen.findByRole("dialog");
+    expect(within(caixa).getByText("Atribuir a Fernanda: 2 selecionados?")).toBeInTheDocument();
+    await user.click(within(caixa).getByRole("button", { name: "Confirmar" }));
     expect(bulkMutate).toHaveBeenCalledWith(
       { action: "assign", lead_ids: ["lead-1", "lead-2"], params: { owner_user_id: "u2" } },
       expect.anything(),
     );
+  });
+
+  it("servidor tocou menos do que a tela mandou → o aviso diz a diferença", async () => {
+    bulkMutate.mockImplementation((_input, opts?: { onSuccess?: (r: unknown) => void }) =>
+      opts?.onSuccess?.({ data: { updated_count: 1 } }),
+    );
+    montar();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Responsável…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Fernanda" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Confirmar" }));
+    expect(toastWarning).toHaveBeenCalledWith("1/2 — os demais já não estavam acessíveis.");
   });
 
   it("com a lista de atendentes carregando, o menu fica desabilitado (não abre só com 'Eu')", () => {

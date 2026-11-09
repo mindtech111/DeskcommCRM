@@ -5725,5 +5725,8 @@
   "Desatribuir…": "取消分配…",
   "Deixar sem responsável": "不指定负责人",
   "Os selecionados saem da carteira de quem cuida deles hoje e ficam sem responsável até serem atribuídos de novo.": "所选项目将从当前负责人的名下移出，在重新分配之前没有负责人。",
-  "Informe o novo responsável. Para deixar sem responsável, use a ação \"unassign\".": "请指定新的负责人。如需不指定负责人，请使用 \"unassign\" 操作。"
+  "Informe o novo responsável. Para deixar sem responsável, use a ação \"unassign\".": "请指定新的负责人。如需不指定负责人，请使用 \"unassign\" 操作。",
+  "os demais já não estavam acessíveis.": "其余的已无法访问。",
+  "A troca é feita de uma vez: ou todos mudam de responsável, ou nenhum muda.": "更改一次性完成：要么全部更换负责人，要么都不更换。",
+  "Atribuir a": "分配给"
 }

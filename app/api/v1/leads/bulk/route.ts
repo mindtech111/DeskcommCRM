@@ -3,7 +3,8 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  * POST /api/v1/leads/bulk
  *
  * Bulk operations on leads (move/assign/unassign/tag/delete). Discriminated by `action`.
- * AT-06: max 50 ids per call.
+ * AT-06: max 50 ids per call — exceto assign/unassign, que vão numa escrita só
+ * de até 1000 (`fn_atribuir_leads_em_lote`, migration 0689).
  *
  * Status transitions are NOT performed here — bulk move only changes
  * stage_id/position; the trigger will close-as-won/lost if the target is a
@@ -37,6 +38,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { observeServiceOrigin } from "@/lib/atendimento/origem";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { LEADS_POR_ATRIBUICAO } from "@/lib/kanban/selecao";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
@@ -105,8 +107,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     throw err;
   }
 
-  if (input.lead_ids.length > MAX_BULK) {
-    return fail("bulk_too_large", `${t("Máximo")} ${MAX_BULK} ${t("leads por bulk.")}`, 422, { requestId });
+  const trocaDeDono = input.action === "assign" || input.action === "unassign";
+  const teto = trocaDeDono ? LEADS_POR_ATRIBUICAO : MAX_BULK;
+  if (input.lead_ids.length > teto) {
+    return fail("bulk_too_large", `${t("Máximo")} ${teto} ${t("leads por bulk.")}`, 422, { requestId });
   }
 
   // G3-04: assign é reatribuição de dono em lote → piso ≥manager (spec 04 §6.5,
@@ -167,17 +171,24 @@ export async function POST(req: NextRequest): Promise<Response> {
   // `status` e `pipeline_id` (já vinha) respondem a OUTRA pergunta, a da
   // retomada (issue #1538): o lote não pode reabrir um negócio encerrado num
   // funil `novo_negocio`, e sem o `status` não há como saber quem ficaria.
-  const { data: scoped } = await supabase
-    .from("crm_leads")
-    .select(
-      "id, organization_id, tags, stage_id, pipeline_id, contact_id, lost_reason, custom_fields, won_reason, status",
-    )
-    .eq("organization_id", organizationId)
-    .in("id", input.lead_ids);
+  //
+  // A troca de dono NÃO lê antes: o lote dela vai até 1000 ids, e `.in("id", …)`
+  // num GET leva todos na URL (~37 mil caracteres). Quem filtra organização e
+  // visibilidade é a própria escrita (`fn_atribuir_leads_em_lote`, invoker, com
+  // `organization_id` explícito), e o que ela devolve é o conjunto tocado.
+  const { data: scoped } = trocaDeDono
+    ? { data: [] as never[] }
+    : await supabase
+        .from("crm_leads")
+        .select(
+          "id, organization_id, tags, stage_id, pipeline_id, contact_id, lost_reason, custom_fields, won_reason, status",
+        )
+        .eq("organization_id", organizationId)
+        .in("id", input.lead_ids);
 
   const visible = scoped ?? [];
   const first = visible[0];
-  if (!first) {
+  if (!first && !trocaDeDono) {
     return fail(
       "not_found",
       t("Nenhum lead acessível na operação."),
@@ -185,7 +196,11 @@ export async function POST(req: NextRequest): Promise<Response> {
       { requestId },
     );
   }
-  const visibleIds = visible.map((r) => r.id);
+  let visibleIds = visible.map((r) => r.id);
+  // Liga os `lead.assigned` (um por negócio, carimbados pelo gatilho) ao
+  // `lead.bulk_assigned` agregado desta chamada — é o que permite ao push
+  // mandar UM aviso só (migration 0689).
+  const loteId = trocaDeDono ? randomUUID() : null;
 
   let updatedCount = 0;
   const nowIso = new Date().toISOString();
@@ -522,20 +537,22 @@ export async function POST(req: NextRequest): Promise<Response> {
           { requestId },
         );
       }
-      const patch: Record<string, unknown> = {
-        ...owner.patch,
-        updated_at: nowIso,
-      };
-      if (owner.patch.owner_kind !== null) {
-        patch.assigned_at = nowIso;
-      }
-      const { data, error } = await supabase
-        .from("crm_leads")
-        .update(patch)
-        .in("id", visibleIds)
-        .select("id");
+      // Migration 0689: UMA escrita só, tudo ou nada, com o trio de posse do
+      // `resolveOwnerPatch` (a função grava o mesmo trio: user+'user' ou
+      // null+null+null). O gatilho segue emitindo um `lead.assigned` por
+      // negócio, agora com `lote_id`.
+      const { data, error } = await supabase.rpc("fn_atribuir_leads_em_lote", {
+        p_organization_id: organizationId,
+        p_lead_ids: input.lead_ids,
+        p_owner_user_id: owner.patch.owner_user_id,
+        p_lote_id: loteId,
+      });
       if (error) return fail("internal_error", error.message, 500, { requestId });
-      updatedCount = data?.length ?? 0;
+      visibleIds = ((data ?? []) as Array<{ lead_id: string }>).map((r) => r.lead_id);
+      if (visibleIds.length === 0) {
+        return fail("not_found", t("Nenhum lead acessível na operação."), 404, { requestId });
+      }
+      updatedCount = visibleIds.length;
       break;
     }
     case "tag": {
@@ -614,6 +631,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       p_payload: {
         action: input.action,
         lead_ids: visibleIds,
+        ...(loteId ? { lote_id: loteId } : {}),
         params:
           ownerDoLote !== undefined
             ? { owner_user_id: ownerDoLote }

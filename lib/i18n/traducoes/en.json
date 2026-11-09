@@ -9181,5 +9181,7 @@
   "Desatribuir…": "Unassign…",
   "Deixar sem responsável": "Leave without owner",
   "Os selecionados saem da carteira de quem cuida deles hoje e ficam sem responsável até serem atribuídos de novo.": "The selected items leave the portfolio of whoever handles them today and stay without an owner until they are assigned again.",
-  "Informe o novo responsável. Para deixar sem responsável, use a ação \"unassign\".": "Provide the new owner. To leave without an owner, use the \"unassign\" action."
+  "Informe o novo responsável. Para deixar sem responsável, use a ação \"unassign\".": "Provide the new owner. To leave without an owner, use the \"unassign\" action.",
+  "os demais já não estavam acessíveis.": "the rest were no longer accessible.",
+  "A troca é feita de uma vez: ou todos mudam de responsável, ou nenhum muda.": "The change happens all at once: either all of them change owner, or none do."
 }

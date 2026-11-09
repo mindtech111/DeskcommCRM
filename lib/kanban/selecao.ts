@@ -12,6 +12,17 @@
 export const LEADS_POR_REQUISICAO = 50;
 
 /**
+ * Teto da troca de dono em lote (`assign`/`unassign`), que é UMA escrita só no
+ * banco (`fn_atribuir_leads_em_lote`, migration 0689) — tudo ou nada.
+ *
+ * Não se quebra em lotes de 50 como as outras ações: quebrar é o que deixava
+ * parte do funil reatribuída e parte não quando uma chamada do meio falhava
+ * (incidente de 09/11/2026). 1000 é o `max_rows` do PostgREST deste produto, o
+ * maior quadro que a tela consegue carregar — logo, a maior seleção possível.
+ */
+export const LEADS_POR_ATRIBUICAO = 1000;
+
+/**
  * Quebra a seleção em lotes do tamanho que a API aceita.
  *
  * Extraído de `lib/kanban/bulk-action.ts` do PR #418 (@clinicacentrodosorrisosc-code):
@@ -19,10 +30,10 @@ export const LEADS_POR_REQUISICAO = 50;
  * — uma etapa de 80 cards é uma tarde normal —, e sem a quebra a barra devolvia
  * `bulk_too_large` para o usuário como se ele tivesse feito algo errado.
  */
-export function lotesDeIds<T>(ids: readonly T[]): T[][] {
+export function lotesDeIds<T>(ids: readonly T[], tamanho: number = LEADS_POR_REQUISICAO): T[][] {
   const lotes: T[][] = [];
-  for (let i = 0; i < ids.length; i += LEADS_POR_REQUISICAO) {
-    lotes.push(ids.slice(i, i + LEADS_POR_REQUISICAO));
+  for (let i = 0; i < ids.length; i += tamanho) {
+    lotes.push(ids.slice(i, i + tamanho));
   }
   return lotes;
 }

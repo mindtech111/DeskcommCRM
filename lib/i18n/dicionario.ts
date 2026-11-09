@@ -9458,6 +9458,8 @@ export const DICIONARIO: Traducoes = {
   "Responsável…": { es: "Responsable…" },
   "Eu": { es: "Yo" },
   "Remover responsável": { es: "Quitar responsable" },
+  "os demais já não estavam acessíveis.": { es: "los demás ya no estaban accesibles." },
+  "A troca é feita de uma vez: ou todos mudam de responsável, ou nenhum muda.": { es: "El cambio se hace de una vez: o todos cambian de responsable, o ninguno cambia." },
   "Desatribuir…": { es: "Quitar responsables…" },
   "Deixar sem responsável": { es: "Dejar sin responsable" },
   "Os selecionados saem da carteira de quem cuida deles hoje e ficam sem responsável até serem atribuídos de novo.": { es: "Los seleccionados salen de la cartera de quien los atiende hoy y quedan sin responsable hasta que se asignen de nuevo." },

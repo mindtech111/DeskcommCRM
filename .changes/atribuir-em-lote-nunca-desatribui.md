@@ -15,3 +15,10 @@ contagem. Na API, `POST /api/v1/leads/bulk` com `action: "assign"` exige
 `owner_user_id`: sem ele, responde 422 `owner_required` e não altera nada.
 Para deixar sem responsável, use `action: "unassign"`, também restrita a
 gerente ou acima e auditada como `leads.bulk_unassigned`.
+
+A troca de dono em lote também passou a ser uma escrita só, de até 1000
+negócios: ou todos mudam, ou nenhum muda. Antes ela ia em pedaços de 50, e uma
+falha no meio deixava parte do funil reatribuída e parte não. Escolher o
+atendente agora abre uma confirmação com o nome dele e a contagem. Quem recebe
+o lote ganha um aviso só, com o número de negócios, em vez de um por negócio.
+Webhooks e automações de "responsável mudou" continuam disparando por negócio.

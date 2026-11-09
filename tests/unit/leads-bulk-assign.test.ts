@@ -45,6 +45,7 @@ interface StubState {
   targetMember: { role: string } | null;
   updateCalled: boolean;
   updatePatch: Record<string, unknown> | null;
+  rpcs: Array<{ nome: string; args: Record<string, unknown> }>;
 }
 
 function stubState(overrides: Partial<StubState> = {}): StubState {
@@ -57,6 +58,7 @@ function stubState(overrides: Partial<StubState> = {}): StubState {
     targetMember: { role: "agent" },
     updateCalled: false,
     updatePatch: null,
+    rpcs: [],
     ...overrides,
   };
 }
@@ -95,8 +97,22 @@ function makeSupabaseStub(state: StubState) {
       };
       return b;
     },
-    rpc() {
-      return { then: (onF: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(onF) };
+    rpc(nome: string, args: Record<string, unknown>) {
+      state.rpcs.push({ nome, args });
+      // A troca de dono é a função 0689: uma escrita só, que devolve os ids tocados.
+      if (nome === "fn_atribuir_leads_em_lote") {
+        state.updateCalled = true;
+        state.updatePatch = args;
+        const tocados = state.affectedRows.map((r) => ({ lead_id: r.id }));
+        return {
+          then: (onF: (v: unknown) => unknown, onR?: (e: unknown) => unknown) =>
+            Promise.resolve({ data: tocados, error: null }).then(onF, onR),
+        };
+      }
+      return {
+        then: (onF: (v: unknown) => unknown, onR?: (e: unknown) => unknown) =>
+          Promise.resolve({ error: null }).then(onF, onR),
+      };
     },
   };
 }
@@ -173,7 +189,7 @@ describe("POST /api/v1/leads/bulk — assign gate ≥manager", () => {
     );
   });
 
-  it("manager → 200, UPDATE único, audit agregado leads.bulk_assigned com count", async () => {
+  it("manager → 200, UMA escrita (fn_atribuir_leads_em_lote), audit agregado leads.bulk_assigned com count", async () => {
     vi.mocked(isServiceRoleConfigured).mockReturnValue(true);
     const state = stubState({ targetMember: { role: "agent" } });
     session("manager", state);
@@ -189,6 +205,38 @@ describe("POST /api/v1/leads/bulk — assign gate ≥manager", () => {
       .find((e) => e.action === "leads.bulk_assigned");
     expect(entry).toBeDefined();
     expect(entry?.metadata).toMatchObject({ count: 2, owner_user_id: OWNER_ID });
+    const escritas = state.rpcs.filter((r) => r.nome === "fn_atribuir_leads_em_lote");
+    expect(escritas).toHaveLength(1);
+    expect(escritas[0]?.args).toMatchObject({
+      p_organization_id: ORG_ID,
+      p_lead_ids: [LEAD_A, LEAD_B],
+      p_owner_user_id: OWNER_ID,
+    });
+  });
+
+  it("o lead.bulk_assigned agregado leva o MESMO lote_id que a escrita carimbou (push único)", async () => {
+    vi.mocked(isServiceRoleConfigured).mockReturnValue(true);
+    const state = stubState();
+    session("manager", state);
+    const { POST } = await import("@/app/api/v1/leads/bulk/route");
+    await POST(postReq(assignBody(OWNER_ID)));
+    const escrita = state.rpcs.find((r) => r.nome === "fn_atribuir_leads_em_lote");
+    const evento = state.rpcs.find(
+      (r) => r.nome === "emit_event" && r.args.p_event_type === "lead.bulk_assigned",
+    );
+    expect(typeof escrita?.args.p_lote_id).toBe("string");
+    expect((evento?.args.p_payload as Record<string, unknown>).lote_id).toBe(escrita?.args.p_lote_id);
+    expect((evento?.args.p_payload as { params: unknown }).params).toEqual({ owner_user_id: OWNER_ID });
+  });
+
+  it("escrita que não tocou nenhum negócio (nada visível na org) → 404, sem audit", async () => {
+    vi.mocked(isServiceRoleConfigured).mockReturnValue(true);
+    const state = stubState({ affectedRows: [] });
+    session("manager", state);
+    const { POST } = await import("@/app/api/v1/leads/bulk/route");
+    const res = await POST(postReq(assignBody(OWNER_ID)));
+    expect(res.status).toBe(404);
+    expect(vi.mocked(audit)).not.toHaveBeenCalled();
   });
 });
 
@@ -263,11 +311,7 @@ describe("POST /api/v1/leads/bulk — unassign (ação própria)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { updated_count: number } };
     expect(body.data.updated_count).toBe(2);
-    expect(state.updatePatch).toMatchObject({
-      owner_user_id: null,
-      owner_agent_id: null,
-      owner_kind: null,
-    });
+    expect(state.updatePatch).toMatchObject({ p_owner_user_id: null });
     const acoes = vi.mocked(audit).mock.calls.map(([e]) => e.action);
     expect(acoes).toContain("leads.bulk_unassigned");
     expect(acoes).not.toContain("leads.bulk_assigned");
@@ -288,16 +332,29 @@ describe("POST /api/v1/leads/bulk — unassign (ação própria)", () => {
   });
 });
 
-describe("POST /api/v1/leads/bulk — limite (MAX_BULK=50)", () => {
-  it("acima do teto → 422, sem UPDATE", async () => {
+describe("POST /api/v1/leads/bulk — teto da troca de dono (1000, uma escrita só)", () => {
+  const ids = (n: number) =>
+    Array.from({ length: n }, (_, i) => `66666666-6666-4666-8666-${String(i).padStart(12, "0")}`);
+
+  it("175 negócios (o funil do incidente) → UMA chamada à escrita, com os 175", async () => {
+    vi.mocked(isServiceRoleConfigured).mockReturnValue(true);
+    const state = stubState({ affectedRows: ids(175).map((id) => ({ id })) });
+    session("manager", state);
+    const { POST } = await import("@/app/api/v1/leads/bulk/route");
+    const res = await POST(postReq(assignBody(OWNER_ID, ids(175))));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { updated_count: number } };
+    expect(body.data.updated_count).toBe(175);
+    const escritas = state.rpcs.filter((r) => r.nome === "fn_atribuir_leads_em_lote");
+    expect(escritas).toHaveLength(1);
+    expect((escritas[0]?.args.p_lead_ids as string[]).length).toBe(175);
+  });
+
+  it("acima de 1000 → 422, sem escrita", async () => {
     const state = stubState();
     session("manager", state);
-    const tooMany = Array.from(
-      { length: 51 },
-      (_, i) => `66666666-6666-4666-8666-${String(i).padStart(12, "0")}`,
-    );
     const { POST } = await import("@/app/api/v1/leads/bulk/route");
-    const res = await POST(postReq(assignBody(OWNER_ID, tooMany)));
+    const res = await POST(postReq(assignBody(OWNER_ID, ids(1001))));
     expect(res.status).toBe(422);
     expect(state.updateCalled).toBe(false);
   });

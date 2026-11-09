@@ -1276,6 +1276,17 @@ export function useBulkAction(pipelineId: string) {
 }
 ```
 
+> **Estado atual (09/11/2026), que substitui o esboço acima onde divergem.**
+> O cliente quebra a seleção em lotes de 50 para `move`/`tag`/`delete`
+> (`lib/kanban/selecao.ts`). A troca de dono é outra conta: `assign` exige
+> `owner_user_id` (sem ele, 422 `owner_required`), tirar o dono é a ação
+> própria `unassign`, e as duas vão numa chamada só de até 1000 ids, que o banco
+> aplica tudo ou nada (`fn_atribuir_leads_em_lote`, migration 0689). Na barra,
+> "Responsável…" só atribui e pede confirmação com o nome e a contagem;
+> "Desatribuir…" é botão separado, também com confirmação. Cada negócio segue
+> emitindo seu `lead.assigned` (gatilho de webhook e automação), carimbado com
+> `lote_id`; o push avisa o novo dono uma vez só, pelo `lead.bulk_assigned`.
+
 `<BulkActionBar>` aparece flutuante no topo quando `selected.size > 0`:
 
 ```
