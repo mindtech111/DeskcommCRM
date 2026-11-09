@@ -262,10 +262,21 @@ export const bulkLeadActionSchema = z.discriminatedUnion("action", [
       lost_reason: z.string().max(500).optional(),
     }),
   }),
+  // `assign` SEMPRE leva um dono. Até 09/11/2026 `owner_user_id: null` era
+  // aceito aqui e significava "desatribuir": o mesmo menu que atribuía tinha um
+  // item que, num clique, deixava o lote inteiro sem responsável, e foi o que
+  // aconteceu em produção (50 negócios desatribuídos quando a intenção era
+  // reatribuir). Tirar o dono é outra ação, com outro nome — `unassign` —,
+  // para que nenhum valor ausente ou nulo vire efeito destrutivo por acaso.
   z.object({
     action: z.literal("assign"),
     lead_ids: z.array(z.string().uuid()).min(1).max(50),
-    params: z.object({ owner_user_id: z.string().uuid().nullable() }),
+    params: z.object({ owner_user_id: z.string().uuid() }),
+  }),
+  z.object({
+    action: z.literal("unassign"),
+    lead_ids: z.array(z.string().uuid()).min(1).max(50),
+    params: z.object({}).optional(),
   }),
   z.object({
     action: z.literal("tag"),

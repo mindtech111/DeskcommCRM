@@ -8,7 +8,11 @@
  *    audita UMA entrada agregada `leads.bulk_assigned` com count + owner_user_id;
  *  - owner fora da org / não-membro / viewer → 422 invalid_owner (código estável),
  *    sem UPDATE;
- *  - desatribuir (owner_user_id null) é válido e pula a validação de membership;
+ *  - `assign` SEM dono (null ou ausente) → 422 owner_required, sem UPDATE e sem
+ *    audit (incidente de 09/11/2026: o null era "desatribuir" e um clique no item
+ *    errado do menu deixou 50 negócios sem responsável);
+ *  - desatribuir é a ação própria `unassign` (≥manager), auditada como
+ *    `leads.bulk_unassigned` e com o trio de posse limpo;
  *  - limite: acima do teto (MAX_BULK=50) → 422, sem UPDATE.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,6 +44,7 @@ interface StubState {
   affectedRows: Array<{ id: string }>;
   targetMember: { role: string } | null;
   updateCalled: boolean;
+  updatePatch: Record<string, unknown> | null;
 }
 
 function stubState(overrides: Partial<StubState> = {}): StubState {
@@ -51,6 +56,7 @@ function stubState(overrides: Partial<StubState> = {}): StubState {
     affectedRows: [{ id: LEAD_A }, { id: LEAD_B }],
     targetMember: { role: "agent" },
     updateCalled: false,
+    updatePatch: null,
     ...overrides,
   };
 }
@@ -63,9 +69,10 @@ function makeSupabaseStub(state: StubState) {
         select() {
           return b;
         },
-        update() {
+        update(patch: Record<string, unknown>) {
           b._op = "update";
           state.updateCalled = true;
+          state.updatePatch = patch;
           return b;
         },
         delete() {
@@ -221,14 +228,63 @@ describe("POST /api/v1/leads/bulk — validação de owner", () => {
     expect(state.updateCalled).toBe(false);
   });
 
-  it("desatribuir (owner_user_id null) → 200, pula validação de membership", async () => {
+  it("assign com owner_user_id null → 422 owner_required, sem UPDATE nem audit", async () => {
     vi.mocked(isServiceRoleConfigured).mockReturnValue(true);
     const state = stubState({ targetMember: null });
     session("manager", state);
     const { POST } = await import("@/app/api/v1/leads/bulk/route");
     const res = await POST(postReq(assignBody(null)));
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("owner_required");
+    expect(state.updateCalled).toBe(false);
+    expect(vi.mocked(audit)).not.toHaveBeenCalled();
+  });
+
+  it("assign sem owner_user_id (params vazio) → 422 owner_required, sem UPDATE", async () => {
+    vi.mocked(isServiceRoleConfigured).mockReturnValue(true);
+    const state = stubState();
+    session("manager", state);
+    const { POST } = await import("@/app/api/v1/leads/bulk/route");
+    const res = await POST(postReq({ action: "assign", lead_ids: [LEAD_A], params: {} }));
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("owner_required");
+    expect(state.updateCalled).toBe(false);
+  });
+});
+
+describe("POST /api/v1/leads/bulk — unassign (ação própria)", () => {
+  it("manager → 200, limpa o trio de posse, audita leads.bulk_unassigned", async () => {
+    const state = stubState();
+    session("manager", state);
+    const { POST } = await import("@/app/api/v1/leads/bulk/route");
+    const res = await POST(postReq({ action: "unassign", lead_ids: [LEAD_A, LEAD_B], params: {} }));
     expect(res.status).toBe(200);
-    expect(state.updateCalled).toBe(true);
+    const body = (await res.json()) as { data: { updated_count: number } };
+    expect(body.data.updated_count).toBe(2);
+    expect(state.updatePatch).toMatchObject({
+      owner_user_id: null,
+      owner_agent_id: null,
+      owner_kind: null,
+    });
+    const acoes = vi.mocked(audit).mock.calls.map(([e]) => e.action);
+    expect(acoes).toContain("leads.bulk_unassigned");
+    expect(acoes).not.toContain("leads.bulk_assigned");
+    const entry = vi
+      .mocked(audit)
+      .mock.calls.map(([e]) => e)
+      .find((e) => e.action === "leads.bulk_unassigned");
+    expect(entry?.metadata).toMatchObject({ count: 2, owner_user_id: null });
+  });
+
+  it("agent tentando unassign → 403 forbidden_role, sem UPDATE", async () => {
+    const state = stubState();
+    session("agent", state);
+    const { POST } = await import("@/app/api/v1/leads/bulk/route");
+    const res = await POST(postReq({ action: "unassign", lead_ids: [LEAD_A], params: {} }));
+    expect(res.status).toBe(403);
+    expect(state.updateCalled).toBe(false);
   });
 });
 

@@ -2,7 +2,7 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/leads/bulk
  *
- * Bulk operations on leads (move/assign/tag/delete). Discriminated by `action`.
+ * Bulk operations on leads (move/assign/unassign/tag/delete). Discriminated by `action`.
  * AT-06: max 50 ids per call.
  *
  * Status transitions are NOT performed here — bulk move only changes
@@ -18,7 +18,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { resolveOwnerPatch } from "@/lib/leads/owner-patch";
 import { emitLeadActivity, stageChangeReason } from "@/lib/leads/activity-emitter";
 import { registraFalhaDeAtividade } from "@/lib/leads/activity-write-failure";
-import { bulkLeadActionSchema, validateRequest } from "@/lib/schemas";
+import { bulkLeadActionSchema, validateBody } from "@/lib/schemas";
 import {
   decideMotivoDaPerda,
   etapaDePerda,
@@ -63,9 +63,38 @@ export async function POST(req: NextRequest): Promise<Response> {
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const user = authz.user;
 
+  let corpo: unknown;
+  try {
+    corpo = await req.json();
+  } catch {
+    return fail("body_malformed", "Body must be valid JSON", 400, { requestId });
+  }
+
+  // `assign` sem dono é recusa com código PRÓPRIO, antes do Zod (que diria só
+  // `validation_error`). Até 09/11/2026 o null aqui era "desatribuir" e um
+  // clique no item errado do menu tirou o responsável de 50 negócios em
+  // produção. Tirar o dono agora é `action: "unassign"`, e o cliente que ainda
+  // manda o contrato antigo recebe o nome da ação certa na mensagem — nunca o
+  // efeito destrutivo por omissão.
+  if (
+    corpo !== null &&
+    typeof corpo === "object" &&
+    (corpo as { action?: unknown }).action === "assign"
+  ) {
+    const params = (corpo as { params?: { owner_user_id?: unknown } }).params;
+    if (params?.owner_user_id == null) {
+      return fail(
+        "owner_required",
+        t('Informe o novo responsável. Para deixar sem responsável, use a ação "unassign".'),
+        422,
+        { requestId },
+      );
+    }
+  }
+
   let input;
   try {
-    input = await validateRequest(bulkLeadActionSchema, req);
+    input = validateBody(bulkLeadActionSchema, corpo);
   } catch (err) {
     if (err instanceof ApiError) {
       return fail(err.code, err.message, err.status, {
@@ -82,46 +111,48 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   // G3-04: assign é reatribuição de dono em lote → piso ≥manager (spec 04 §6.5,
   // INB-03). Gate por-action: move/tag/delete continuam agent+ (piso acima);
-  // só o assign exige manager. Reusa o helper (nada de ROLE_RANK na mão).
-  if (input.action === "assign") {
+  // assign e unassign exigem manager. Reusa o helper (nada de ROLE_RANK na mão).
+  if (input.action === "assign" || input.action === "unassign") {
     const mgr = await requireRole("manager", { requestId, resource: "crm_leads" });
     if (!mgr.ok) return mgr.response;
+  }
 
+  if (input.action === "assign") {
     // Novo dono tem que ser membro ativo agent+ da MESMA org (org de fonte
-    // confiável = authz, nunca body). owner_user_id null = desatribuir (válido).
+    // confiável = authz, nunca body). Sempre presente: o null foi recusado
+    // acima com `owner_required`.
     // A RLS de user_organizations só mostra o próprio membership a um manager,
     // por isso o admin client filtrado pela org resolvida.
     const ownerId = input.params.owner_user_id;
-    if (ownerId !== null) {
-      // INB-09 nota 1: fail-closed. A validação de membership só roda com service
-      // role (a RLS de user_organizations não mostra membership alheio a um
-      // manager). Sem service role NÃO se pode validar o dono → recusar em vez
-      // de atribuir um owner não-verificado. Desatribuir (owner null) segue livre.
-      if (!isServiceRoleConfigured()) {
-        return fail(
-          "owner_validation_unavailable",
-          t("Não foi possível validar o responsável agora. Tente novamente em instantes."),
-          422,
-          { requestId },
-        );
-      }
-      const admin = createAdminClient();
-      const { data: member, error: memberErr } = await admin
-        .from("user_organizations")
-        .select("role")
-        .eq("organization_id", authz.org.orgId)
-        .eq("user_id", ownerId)
-        .is("revoked_at", null)
-        .maybeSingle();
-      if (memberErr) return fail("internal_error", memberErr.message, 500, { requestId });
-      if (!member || member.role === "viewer") {
-        return fail(
-          "invalid_owner",
-          t("Responsável não é um atendente ativo desta organização."),
-          422,
-          { requestId },
-        );
-      }
+    // INB-09 nota 1: fail-closed. A validação de membership só roda com service
+    // role (a RLS de user_organizations não mostra membership alheio a um
+    // manager). Sem service role NÃO se pode validar o dono → recusar em vez
+    // de atribuir um owner não-verificado. (Desatribuir é `unassign`, que não
+    // tem dono a validar.)
+    if (!isServiceRoleConfigured()) {
+      return fail(
+        "owner_validation_unavailable",
+        t("Não foi possível validar o responsável agora. Tente novamente em instantes."),
+        422,
+        { requestId },
+      );
+    }
+    const admin = createAdminClient();
+    const { data: member, error: memberErr } = await admin
+      .from("user_organizations")
+      .select("role")
+      .eq("organization_id", authz.org.orgId)
+      .eq("user_id", ownerId)
+      .is("revoked_at", null)
+      .maybeSingle();
+    if (memberErr) return fail("internal_error", memberErr.message, 500, { requestId });
+    if (!member || member.role === "viewer") {
+      return fail(
+        "invalid_owner",
+        t("Responsável não é um atendente ativo desta organização."),
+        422,
+        { requestId },
+      );
     }
   }
 
@@ -471,12 +502,18 @@ export async function POST(req: NextRequest): Promise<Response> {
       );
       break;
     }
-    case "assign": {
+    case "assign":
+    case "unassign": {
       // 0070: o trio de posse vem do helper compartilhado. Escrever só
       // owner_user_id aqui quebrava de dois jeitos: lote com algum lead de dono
       // AGENTE estourava 23514 e derrubava a operação inteira; e lead sem dono
       // ganhava dono sem owner_kind (drift silencioso).
-      const owner = resolveOwnerPatch({ owner_user_id: input.params.owner_user_id });
+      //
+      // O null explícito (limpar os três campos) só chega ao helper pelo
+      // `unassign`: no `assign` o dono é UUID obrigatório desde o schema.
+      const owner = resolveOwnerPatch({
+        owner_user_id: input.action === "assign" ? input.params.owner_user_id : null,
+      });
       if (!owner.ok || !owner.patch) {
         return fail(
           "validation_failed",
@@ -552,10 +589,18 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   // Aggregate event + aggregate audit (one record per bulk call).
+  //
+  // `unassign` emite o MESMO `lead.bulk_assigned` que o assign, com
+  // `params.owner_user_id: null` e `action: "unassign"` — o fato é "o dono de N
+  // negócios mudou", e era exatamente o que este evento já registrava quando o
+  // null chegava pelo assign. Um tipo novo pediria entrada na lista de
+  // registro do banco (`fn_event_log_e_registro`, 0239) sem ganho para ninguém.
+  const ownerDoLote =
+    input.action === "assign" ? input.params.owner_user_id : input.action === "unassign" ? null : undefined;
   const eventType =
     input.action === "move"
       ? "lead.bulk_moved"
-      : input.action === "assign"
+      : input.action === "assign" || input.action === "unassign"
         ? "lead.bulk_assigned"
         : input.action === "tag"
           ? "lead.bulk_tagged"
@@ -569,7 +614,12 @@ export async function POST(req: NextRequest): Promise<Response> {
       p_payload: {
         action: input.action,
         lead_ids: visibleIds,
-        params: "params" in input ? input.params : {},
+        params:
+          ownerDoLote !== undefined
+            ? { owner_user_id: ownerDoLote }
+            : "params" in input
+              ? (input.params ?? {})
+              : {},
       },
       p_metadata: { request_id: requestId, actor_user_id: user.id },
       p_organization_id: organizationId,
@@ -578,10 +628,17 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (error) console.error("[lead.bulk] emit_event failed", error.message);
     });
 
-  // Assign audita com action agregada dedicada (spec 04 §6.5); as demais ações
-  // mantêm o code genérico. Uma única entrada por chamada, com a contagem.
+  // Assign e unassign auditam com action agregada dedicada (spec 04 §6.5) — e
+  // separadas: "quem deixou estes negócios sem responsável?" tem de ser
+  // pergunta de filtro, não de leitura de metadata. As demais ações mantêm o
+  // code genérico. Uma única entrada por chamada, com a contagem.
   await audit({
-    action: input.action === "assign" ? "leads.bulk_assigned" : "lead.bulk_action",
+    action:
+      input.action === "assign"
+        ? "leads.bulk_assigned"
+        : input.action === "unassign"
+          ? "leads.bulk_unassigned"
+          : "lead.bulk_action",
     actorUserId: user.id,
     organizationId,
     resourceType: "crm_lead",
@@ -592,8 +649,8 @@ export async function POST(req: NextRequest): Promise<Response> {
       lead_ids: visibleIds,
       count: updatedCount,
       updated_count: updatedCount,
-      ...(input.action === "assign" ? { owner_user_id: input.params.owner_user_id } : {}),
-      params: "params" in input ? input.params : {},
+      ...(ownerDoLote !== undefined ? { owner_user_id: ownerDoLote } : {}),
+      params: "params" in input ? (input.params ?? {}) : {},
     },
   });
 
