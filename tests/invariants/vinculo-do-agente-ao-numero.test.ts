@@ -176,8 +176,9 @@ describe("ai_agent_version_channels — cercas da fatia 1", () => {
     ).toBe("true");
     // Morre a policy `ALL` só-tenancy do primeiro desenho: ela reprovava em
     // `rbac-config-ia-canais.test.ts` ("nenhuma tabela NOVA entra com policy
-    // ALL só-tenancy"). O par select/write é o MESMO molde da 0150 para
-    // `ai_agent_versions`.
+    // ALL só-tenancy"). A escrita deixou de ser `for all` (0690): `for all`
+    // também valia para SELECT e o plano avaliava `fn_role_at_least` em cada
+    // linha. Insert, update e delete carregam a mesma expressão.
     expect(
       Number(
         sql(
@@ -202,12 +203,16 @@ describe("ai_agent_version_channels — cercas da fatia 1", () => {
         sql(
           `select count(*) from pg_policies
             where schemaname = 'public' and tablename = 'ai_agent_version_channels'
-              and policyname = 'tenant_isolation_ai_agent_version_channels_write'
-              and cmd = 'ALL'
+              and policyname in (
+                'tenant_isolation_ai_agent_version_channels_insert',
+                'tenant_isolation_ai_agent_version_channels_write',
+                'tenant_isolation_ai_agent_version_channels_delete'
+              )
+              and cmd in ('INSERT', 'UPDATE', 'DELETE')
               and (coalesce(qual, '') || coalesce(with_check, '')) like '%role_at_least%';`,
         ),
       ),
-    ).toBe(1);
+    ).toBe(3);
   });
 
   it("a policy NÃO cita `conversations` (evita a recursão infinita de RLS)", () => {
