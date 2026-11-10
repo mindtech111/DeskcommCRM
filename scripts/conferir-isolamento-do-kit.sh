@@ -102,9 +102,15 @@ update_sh_da() {  # update_sh_da <tag> — caminho de uma cópia do update.sh da
   if ! git -C "$ROOT" rev-parse -q --verify "refs/tags/$1^{commit}" >/dev/null; then
     local profundidade=""
     [ "$(git -C "$ROOT" rev-parse --is-shallow-repository)" = true ] && profundidade="--depth=1"
-    git -C "$ROOT" fetch -q --no-tags $profundidade origin "+refs/tags/$1:refs/tags/$1"
+    # O checkout de um fork não tem as tags do produto. A release, quando veio
+    # do pai, busca a tag lá. A falha no origin é esperada e não é o erro.
+    if ! git -C "$ROOT" fetch -q --no-tags ${profundidade:+$profundidade} origin "+refs/tags/$1:refs/tags/$1" 2>/dev/null; then
+      [ -n "${pai:-}" ] || return 1
+      git -C "$ROOT" fetch -q --no-tags ${profundidade:+$profundidade} \
+        "https://github.com/${pai}.git" "+refs/tags/$1:refs/tags/$1" || return 1
+    fi
   fi
-  git -C "$ROOT" show "$1:hostgator-setup-kit/update.sh" > "$TMP/$1"
+  git -C "$ROOT" show "$1:hostgator-setup-kit/update.sh" > "$TMP/$1" || return 1
   printf '%s' "$TMP/$1"
 }
 
