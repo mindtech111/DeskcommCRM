@@ -183,7 +183,7 @@ check "entrypoint/certresolver usam os mesmos defaults do docker-compose.traefik
 check "o serviço aponta para a porta do Envoy (8000)" \
   grep -qF 'traefik.http.services.deskcomm-supabase.loadbalancer.server.port: "8000"' "$OVERRIDE"
 check "prioridade 500: acima da rota geral do app e abaixo do bloqueio 1000 do WAHA" \
-  bash -c 'grep -qF "deskcomm-supabase.priority: \"500\"" "$1" && grep -qF "deskcomm-waha-block.priority: \"1000\"" "$2"' _ "$OVERRIDE" "$TRAEFIK_YML"
+  bash -c 'grep -qF "deskcomm-supabase.priority: \"500\"" "$1" && grep -qF "waha-block.priority=1000" "$2"' _ "$OVERRIDE" "$TRAEFIK_YML"
 check "gzip do Caddyfile acompanha a rota do Supabase" \
   grep -qF 'deskcomm-supabase-compress.compress: "true"' "$OVERRIDE"
 
