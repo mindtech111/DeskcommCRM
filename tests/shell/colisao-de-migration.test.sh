@@ -75,6 +75,11 @@ unset $(git rev-parse --local-env-vars)
 export GIT_CEILING_DIRECTORIES="$TMP"
 export GIT_AUTHOR_NAME="Teste" GIT_AUTHOR_EMAIL="teste@exemplo.invalid"
 export GIT_COMMITTER_NAME="Teste" GIT_COMMITTER_EMAIL="teste@exemplo.invalid"
+# O Actions exporta GITHUB_REF=refs/pull/N/merge em todo passo. O gate trata
+# esse N como o PR de quem roda e tira-o da população. Os fixtures daqui usam
+# os números 5 e 7: quando o PR real do CI é um deles, o fixture some e o teto
+# mente. O número do PR que disparou o job não é dado deste teste.
+unset GITHUB_REF GITHUB_REF_NAME GITHUB_HEAD_REF GITHUB_BASE_REF
 
 # ── gh FALSO, para TODOS os casos: sem rede e sem depender do gh de quem roda ──────────
 # Ele HONRA o contrato da chamada real — se ignorasse os argumentos, trocar `--state open`

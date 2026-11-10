@@ -51,9 +51,12 @@
 #
 # `CONFERENCIA_KIT_RELEASE=vX.Y.Z` escolhe à mão (é o botão para provar contra uma
 # release anterior). Sem ele: `gh release view` quando há `GH_TOKEN` (o CI — a API
-# anônima tem teto de 60 consultas/hora por IP, e o executor próprio é um IP só);
-# senão `ultima_release_estavel` do próprio kit (`/releases/latest`). Nunca a maior
-# tag: tag não é release publicada (ver o cabeçalho dessa função em _common.sh).
+# anônima tem teto de 60 consultas/hora por IP, e o executor próprio é um IP só).
+# Fork sem release própria (o `gh release view` olha o checkout) cai na última
+# release do repositório pai, pela API pública: o token do Actions é da repo
+# atual e não lista release de outro repositório. Senão, `ultima_release_estavel`
+# do próprio kit (`/releases/latest`). Nunca a maior tag: tag não é release
+# publicada (ver o cabeçalho dessa função em _common.sh).
 # Sem resposta, REPROVA — gate que pula em silêncio não é gate.
 set -euo pipefail
 
@@ -65,6 +68,19 @@ KIT="$ROOT/hostgator-setup-kit"
 release="${CONFERENCIA_KIT_RELEASE:-}"
 if [ -z "$release" ] && [ -n "${GH_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then
   release="$(cd "$ROOT" && gh release view --json tagName -q .tagName 2>/dev/null || true)"
+fi
+if [ -z "$release" ] && command -v gh >/dev/null 2>&1; then
+  pai="$(cd "$ROOT" && gh repo view --json isFork,parent \
+    --jq 'if .isFork then .parent.owner.login + "/" + .parent.name else "" end' 2>/dev/null || true)"
+  case "$pai" in
+    */*)
+      # Sem o token: ele é da repo do checkout e a API do pai responde 404 com ele.
+      release="$(env -u GH_TOKEN -u GITHUB_TOKEN curl -fsSL --max-time 20 \
+        -H 'Accept: application/vnd.github+json' \
+        "https://api.github.com/repos/${pai}/releases/latest" 2>/dev/null \
+        | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)"
+      ;;
+  esac
 fi
 if [ -z "$release" ]; then
   release="$(cd "$ROOT" && bash -c 'source "$1/_common.sh" >/dev/null 2>&1; ultima_release_estavel' _ "$KIT" || true)"
