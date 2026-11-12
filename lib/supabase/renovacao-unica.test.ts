@@ -4,7 +4,7 @@ import { criarPortaoDeRenovacao } from "./renovacao-unica";
 
 describe("renovação única do browser", () => {
   it("duas chamadas sobrepostas fazem um refresh só", async () => {
-    let t = 0;
+    const t = 0;
     let chamadas = 0;
     const renovar = criarPortaoDeRenovacao({
       agora: () => t,
