@@ -189,7 +189,11 @@ clonar() { # $1 = destino (traz o gate SOB PROVA, a versão da árvore de trabal
   clonar_ou_falhar "$principal" "$1"
   mkdir -p "$1/scripts"; cp "$GATE_ORIGEM" "$1/scripts/checar-colisao-de-migration.sh"
 }
-gate() { ( cd "$1" && bash scripts/checar-colisao-de-migration.sh "${2:-origin/main}" 2>&1 ); }
+# Sem GITHUB_REF: no CI ele é refs/pull/N/merge deste PR. O gate trata esse N
+# como "o seu PR" e tira da conta. Os cenários usam #5, #7 e #8 de propósito;
+# se o PR real for um desses, o #8 "que não pôde ser buscado" vira "o seu" e
+# o caso 18 deixa de ver NÃO MEDIDO.
+gate() { ( unset GITHUB_REF; cd "$1" && bash scripts/checar-colisao-de-migration.sh "${2:-origin/main}" 2>&1 ); }
 migrar() { printf 'select 9;\n' > "$1/supabase/migrations/$2"; }
 commit() { git -C "$1" add -A >/dev/null && git -C "$1" commit -q -m "$2"; }
 
@@ -376,7 +380,7 @@ pr_no_principal() { # $1 = número do PR, $2 = nome da migration que a cabeça d
   [ "$push_ok" = 1 ] || { echo "pr_no_principal: push para refs/pull/$1/head falhou 3x" >&2; exit 90; }
 }
 gate_prs() { # $1 = PRs abertos que o gh falso lista, $2 = clone
-  ( export FAKE_GH_PRS="$1"; cd "$2" && bash scripts/checar-colisao-de-migration.sh origin/main 2>&1 )
+  ( unset GITHUB_REF; export FAKE_GH_PRS="$1"; cd "$2" && bash scripts/checar-colisao-de-migration.sh origin/main 2>&1 )
 }
 pr_no_principal 7 "20260917100000_0276_do_fork.sql"
 pr_no_principal 9 "20260917120000_0400_abandonado.sql"

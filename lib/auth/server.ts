@@ -1,5 +1,4 @@
 import { cache } from "react";
-import { memoCurto, TTL_CONTEXTO_ESTAVEL_MS } from "@/lib/auth/memo-curto";
 import { usuarioValidado } from "@/lib/auth/usuario-da-sessao";
 import { combinarInterfaces } from "@/lib/navigation/interface";
 /**
@@ -181,84 +180,74 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
   }
   if (!user) return null;
 
-  // Platform admin, vínculos e acompanhamento. `getUser()` já rodou acima e
-  // NÃO entra neste memo: a identidade da sessão é perguntada ao Auth em toda
-  // requisição. O que se reaproveita por poucos segundos é o contexto que não
-  // muda a cada clique (`platform_admins`, `user_organizations`,
-  // `fn_support_context`). Erro de leitura NÃO é gravado — a função lança, e
-  // `memoCurto` só guarda o que a leitura devolveu.
+  // Platform admin e vínculos em paralelo. `getUser()` já rodou e é a
+  // identidade desta requisição — `usuarioValidado` deduplica com o layout.
+  // Estas três leituras NÃO ficam em memo entre requests: o menu, o convite,
+  // a suspensão e o acompanhamento mudam num clique e a tela seguinte tem de
+  // ver o banco. O que se economiza é a repetição DENTRO da mesma requisição.
   //
   // ⚠️ `ORDER BY` NÃO É ENFEITE AQUI: esta lista decide QUAL ORGANIZAÇÃO FICA
   // ATIVA para quem não tem o cookie `active_org` — `resolveActiveOrg` pega
   // `organizations[0]`. Sem ordenação, "a primeira" é o que o Postgres devolver.
-  const { paRow, rawMemberships, support } = await memoCurto(
-    `auth-contexto:${user.id}`,
-    async () => {
-      const [{ data: pa, error: paErro }, { data: memberships, error: membErro }] =
-        await Promise.all([
-          supabase
-            .from("platform_admins")
-            .select("user_id, scope, revoked_at")
-            .eq("user_id", user.id)
-            .is("revoked_at", null)
-            .maybeSingle(),
-          supabase
-            .from("user_organizations")
-            .select(
-              // Dois embeds do MESMO `organizations`, como manda o PostgREST quando a
-              // mesma relação aparece duas vezes: `organizations(...)` continua sendo
-              // o que a membership sempre trouxe (nome, IDIOMA e FUSO da empresa — o
-              // idioma decide a tela inteira e não pode depender de um embed que a
-              // issue #1341 acabou de engordar), e o alias traz só as portas da EMPRESA.
-              // `timezone` veio do main (fuso da organização nas listas, #1290) e convive
-              // com o alias: um embed por relação, sem renomear o que já existia.
-              "organization_id, role, interface_settings, accepted_at, organizations(display_name, locale, timezone, currency, country, status, suspended_kind), interface_da_empresa:organizations(interface_settings)",
-            )
-            .eq("user_id", user.id)
-            .is("revoked_at", null)
-            .order("accepted_at", { ascending: true, nullsFirst: true })
-            .order("organization_id", { ascending: true }),
-        ]);
+  const [{ data: paRow, error: paErro }, { data: rawMemberships, error: membErro }] =
+    await Promise.all([
+      supabase
+        .from("platform_admins")
+        .select("user_id, scope, revoked_at")
+        .eq("user_id", user.id)
+        .is("revoked_at", null)
+        .maybeSingle(),
+      supabase
+        .from("user_organizations")
+        .select(
+          // Dois embeds do MESMO `organizations`, como manda o PostgREST quando a
+          // mesma relação aparece duas vezes: `organizations(...)` continua sendo
+          // o que a membership sempre trouxe (nome, IDIOMA e FUSO da empresa — o
+          // idioma decide a tela inteira e não pode depender de um embed que a
+          // issue #1341 acabou de engordar), e o alias traz só as portas da EMPRESA.
+          // `timezone` veio do main (fuso da organização nas listas, #1290) e convive
+          // com o alias: um embed por relação, sem renomear o que já existia.
+          "organization_id, role, interface_settings, accepted_at, organizations(display_name, locale, timezone, currency, country, status, suspended_kind), interface_da_empresa:organizations(interface_settings)",
+        )
+        .eq("user_id", user.id)
+        .is("revoked_at", null)
+        .order("accepted_at", { ascending: true, nullsFirst: true })
+        .order("organization_id", { ascending: true }),
+    ]);
 
-      /**
-       * FALHA ALTO, não baixo.
-       *
-       * Antes, o erro destas duas queries era descartado e `rawMemberships` nulo virava
-       * `[]` — ou seja, "usuário sem organização". O resultado é que uma instabilidade do
-       * banco chega ao operador como **"você não pertence a nenhuma organização"**: as
-       * telas de admin somem, as rotas devolvem 403, e nada indica que a causa é
-       * infraestrutura.
-       *
-       * Medido em 2026-07-30: com o PostgREST devolvendo `name resolution failed` depois
-       * de um restart do Docker, TODOS os cards de admin sumiram do hub de configurações.
-       * Custou seis diagnósticos errados — build velho, processo velho, cache, filtro de
-       * papel — antes de alguém olhar a causa real.
-       *
-       * Degradar permissão em silêncio é o pior desfecho possível num caminho de auth:
-       * parece uma decisão de autorização e é um defeito de infra. Melhor estourar e
-       * mostrar erro do que renderizar uma UI mentirosa.
-       */
-      if (paErro || membErro) {
-        const detalhe = (paErro ?? membErro)!;
-        logger.error("[auth] não foi possível resolver permissões do usuário", {
-          user_id: user.id,
-          onde: paErro ? "platform_admins" : "user_organizations",
-          code: detalhe.code,
-          message: detalhe.message,
-        });
-        throw new Error(
-          `auth_permissions_unavailable: ${detalhe.message} — permissões não puderam ser ` +
-            `resolvidas; a sessão NÃO foi rebaixada por decisão de autorização.`,
-        );
-      }
-      return {
-        paRow: pa,
-        rawMemberships: memberships,
-        support: await readSupportContext(supabase),
-      };
-    },
-    { ttlMs: TTL_CONTEXTO_ESTAVEL_MS },
-  );
+  /**
+   * FALHA ALTO, não baixo.
+   *
+   * Antes, o erro destas duas queries era descartado e `rawMemberships` nulo virava
+   * `[]` — ou seja, "usuário sem organização". O resultado é que uma instabilidade do
+   * banco chega ao operador como **"você não pertence a nenhuma organização"**: as
+   * telas de admin somem, as rotas devolvem 403, e nada indica que a causa é
+   * infraestrutura.
+   *
+   * Medido em 2026-07-30: com o PostgREST devolvendo `name resolution failed` depois
+   * de um restart do Docker, TODOS os cards de admin sumiram do hub de configurações.
+   * Custou seis diagnósticos errados — build velho, processo velho, cache, filtro de
+   * papel — antes de alguém olhar a causa real.
+   *
+   * Degradar permissão em silêncio é o pior desfecho possível num caminho de auth:
+   * parece uma decisão de autorização e é um defeito de infra. Melhor estourar e
+   * mostrar erro do que renderizar uma UI mentirosa.
+   */
+  if (paErro || membErro) {
+    const detalhe = (paErro ?? membErro)!;
+    logger.error("[auth] não foi possível resolver permissões do usuário", {
+      user_id: user.id,
+      onde: paErro ? "platform_admins" : "user_organizations",
+      code: detalhe.code,
+      message: detalhe.message,
+    });
+    throw new Error(
+      `auth_permissions_unavailable: ${detalhe.message} — permissões não puderam ser ` +
+        `resolvidas; a sessão NÃO foi rebaixada por decisão de autorização.`,
+    );
+  }
+
+  const support = await readSupportContext(supabase);
 
   const rows = (rawMemberships ?? []) as RawMembershipRow[];
   const memberships: UserOrgMembership[] = rows.map((row) => {
