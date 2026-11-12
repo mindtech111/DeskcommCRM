@@ -20,13 +20,24 @@ export const IDS_POR_LOTE = 100;
 export async function buscaEmLotes<T>(
   ids: readonly string[],
   consulta: (lote: string[]) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  opcoes?: { paralelo?: boolean },
 ): Promise<{ data: T[]; error: { message: string } | null }> {
   if (ids.length === 0) return { data: [], error: null };
   const lotes: string[][] = [];
   for (let i = 0; i < ids.length; i += IDS_POR_LOTE) {
     lotes.push(ids.slice(i, i + IDS_POR_LOTE));
   }
-  const respostas = await Promise.all(lotes.map((lote) => consulta(lote)));
+  const respostas =
+    opcoes?.paralelo === false
+      ? await lotes.reduce<Promise<Array<{ data: T[] | null; error: { message: string } | null }>>>(
+          async (acc, lote) => {
+            const anteriores = await acc;
+            anteriores.push(await consulta(lote));
+            return anteriores;
+          },
+          Promise.resolve([]),
+        )
+      : await Promise.all(lotes.map((lote) => consulta(lote)));
   const data: T[] = [];
   for (const r of respostas) {
     if (r.error) return { data: [], error: r.error };

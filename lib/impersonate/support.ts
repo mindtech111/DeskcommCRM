@@ -51,7 +51,8 @@ export async function supportCallbackWriteAllowed(organizationId: string, actorI
 }
 export async function authenticatedSessionId(): Promise<string> {
   const db = await createClient();
-  const { data: { user } } = await db.auth.getUser();
+  const { usuarioValidado } = await import("@/lib/auth/usuario-da-sessao");
+  const { data: { user } } = await usuarioValidado();
   if (!user) throw new Error("Sessão ausente.");
   const { data } = await db.auth.getClaims();
   return z.string().uuid().parse(data?.claims.session_id);

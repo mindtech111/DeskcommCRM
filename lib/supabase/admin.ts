@@ -18,6 +18,7 @@
 
 import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 import { env } from "@/lib/env";
+import { fetchComRecuo } from "@/lib/supabase/fetch-com-recuo";
 import { fetchDoServidor } from "@/lib/supabase/fetch-do-servidor";
 import { urlDoSupabaseNoServidor } from "@/lib/supabase/url-do-servidor";
 
@@ -39,9 +40,15 @@ export function createAdminClient(): SupabaseClient {
         detectSessionInUrl: false,
       },
       global: {
-        fetch: fetchDoServidor(
-          urlDoSupabaseNoServidor(env.SUPABASE_SERVER_URL, env.NEXT_PUBLIC_SUPABASE_URL),
-          env.NEXT_PUBLIC_SUPABASE_URL,
+        // O user-agent `deskcomm-crm/admin` é o que o log do PostgREST mostra
+        // para worker, relógio e cron. O recuo mora no fetch: 5xx/429/timeout
+        // de leitura esperam e desistem, e o processo pausa em vez de repetir
+        // a consulta no mesmo instante. Ver `fetch-com-recuo.ts`.
+        fetch: fetchComRecuo(
+          fetchDoServidor(
+            urlDoSupabaseNoServidor(env.SUPABASE_SERVER_URL, env.NEXT_PUBLIC_SUPABASE_URL),
+            env.NEXT_PUBLIC_SUPABASE_URL,
+          ),
         ),
         headers: {
           "X-Client-Info": "deskcomm-crm/admin",

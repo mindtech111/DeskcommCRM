@@ -47,13 +47,6 @@ export async function proxy(request: NextRequest) {
   response.headers.set("x-pathname", pathname);
   request.headers.set("x-pathname", pathname);
 
-  // EPIC-11: the admin surface is reached by PATH (`/admin/*`) — the self-host kit
-  // points `NEXT_PUBLIC_ADMIN_URL` at the same host as the app and maps no `admin.`
-  // sub-domain. The host-based branch below stays a NOOP today and only exists as
-  // documentation of the intended deploy topology.
-  const host = request.headers.get("host") ?? "";
-  const isAdminSurface = host.startsWith("admin.") || pathname.startsWith("/admin");
-
   if (isPublicPath(pathname)) {
     return response;
   }
@@ -92,12 +85,17 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  // Validate JWT server-side (NEVER use getSession on backend per CLAUDE.md).
+  // Só renova a sessão. `getSession()` lê o cookie e, se o access token está
+  // para vencer, faz UM refresh — é o lugar certo para isso, porque o
+  // middleware roda uma vez por navegação. Não autoriza: um JWT bem formado
+  // e vencido por fora ainda passa daqui. Quem decide acesso é `getUser()`
+  // (`usuarioValidado`) no layout e nos guards. Chamar `getUser()` também
+  // aqui duplicava a ida ao Auth em todo clique.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session) {
     // API routes must respond with JSON envelope (contract: {error:{code,message}})
     // — never redirect HTML to JSON consumers. UI routes redirect to /login as before.
     if (pathname.startsWith("/api/")) {
@@ -142,15 +140,9 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // /admin/* additionally requires platform_admin (early gate — authoritative
-  // check is server-side in `requirePlatformAdmin`). Skip the RPC for
-  // `/admin/forbidden` (rendered to non-admins, would otherwise loop).
-  if (isAdminSurface && pathname.startsWith("/admin") && pathname !== "/admin/forbidden") {
-    const { data: isAdmin, error } = await supabase.rpc("fn_is_platform_admin");
-    if (error || !isAdmin) {
-      return NextResponse.redirect(new URL("/admin/forbidden", request.url));
-    }
-  }
+  // /admin não consulta `fn_is_platform_admin` aqui. O layout protegido chama
+  // `requirePlatformAdmin` (`getUser` + linha em `platform_admins`). Um RPC no
+  // middleware repetia essa leitura em toda página do painel.
 
   return response;
 }

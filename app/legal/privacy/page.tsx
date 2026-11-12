@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { nomeDoOperador, resolverOperador } from "@/lib/legal/operador";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioValidado } from "@/lib/auth/usuario-da-sessao";
 import { idiomaDoVisitante } from "@/lib/i18n/idiomaAnonimo";
 import { traduzir } from "@/lib/i18n/dicionario";
 
@@ -24,10 +24,9 @@ export default async function PrivacyPage() {
   // Rota fora da árvore de `app/app/layout.tsx` — sem `IdiomaProvider`, então
   // resolve o idioma direto, como `admin/forbidden/page.tsx`. Página legal
   // pública: pode ser lida sem sessão, por isso `user` é opcional.
-  const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await usuarioValidado();
   const idioma = await idiomaDoVisitante(
     (user?.user_metadata?.locale as string | undefined) ?? null,
   );

@@ -11,17 +11,18 @@
  *  - no row         → /admin/forbidden
  *  - aal1 + required → /login/mfa?next=/admin
  *
- * The middleware already does an early `fn_is_platform_admin` RPC check;
- * this helper performs the authoritative server-side validation inside the
- * /admin layout (where redirects are cheap, DB calls are allowed in Node
- * runtime, and we have access to AAL state).
+ * The middleware only refreshes the session cookie. This helper is the
+ * authorization: `getUser()` plus the `platform_admins` row (short memo) and
+ * the current AAL, which is never cached.
  */
 import { redirect } from "next/navigation";
 import type { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { fail, type ApiError } from "@/lib/api/wrappers";
+import { memoCurto, TTL_CONTEXTO_ESTAVEL_MS } from "@/lib/auth/memo-curto";
 import { EscritaDePlatformAdminNegada } from "@/lib/auth/recusa-de-escrita-de-admin";
 import { mfaEmDivida } from "@/lib/auth/server";
+import { usuarioValidado } from "@/lib/auth/usuario-da-sessao";
 import { createClient } from "@/lib/supabase/server";
 
 export interface PlatformAdminInfo {
@@ -40,18 +41,38 @@ export async function requirePlatformAdmin(): Promise<PlatformAdminContext> {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await usuarioValidado();
   if (!user) {
     redirect("/login?next=/admin");
   }
 
   // platform_admins RLS: only platform admins read; non-admins get null → forbid.
-  const { data: paRow } = await supabase
-    .from("platform_admins")
-    .select("user_id, scope, mfa_required, revoked_at")
-    .eq("user_id", user.id)
-    .is("revoked_at", null)
-    .maybeSingle();
+  // Erro de leitura lança e não entra no memo: um blip não vira "não é admin"
+  // pelos próximos segundos. AAL (abaixo) continua fresco.
+  let paRow: PlatformAdminInfo | null = null;
+  try {
+    paRow = await memoCurto(
+      `platform-admin:${user.id}`,
+      async () => {
+        const { data, error } = await supabase
+          .from("platform_admins")
+          .select("user_id, scope, mfa_required, revoked_at")
+          .eq("user_id", user.id)
+          .is("revoked_at", null)
+          .maybeSingle();
+        if (error) throw error;
+        if (!data) return null;
+        return {
+          user_id: data.user_id,
+          scope: data.scope,
+          mfa_required: data.mfa_required,
+        };
+      },
+      { ttlMs: TTL_CONTEXTO_ESTAVEL_MS },
+    );
+  } catch {
+    redirect("/admin/forbidden");
+  }
 
   if (!paRow) {
     redirect("/admin/forbidden");

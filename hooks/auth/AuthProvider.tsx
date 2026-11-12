@@ -4,13 +4,12 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { Providers } from "@/app/providers";
 import { definirOrgDaAba } from "@/lib/auth/org-da-aba";
-import { createClient, resetRealtimeAuthentication } from "@/lib/supabase/browser";
+import { renovarSessaoDoNavegador, resetRealtimeAuthentication } from "@/lib/supabase/browser";
 import type { AuthUser, ActiveOrg, Role } from "@/lib/auth/types";
 import { ROLE_RANK } from "@/lib/auth/types";
 
@@ -34,7 +33,6 @@ export function AuthProvider({
   children: ReactNode;
 }) {
   const [refreshing, setRefreshing] = useState(false);
-  const supabaseRef = useRef(createClient());
 
   useEffect(() => {
     resetRealtimeAuthentication();
@@ -73,7 +71,9 @@ export function AuthProvider({
       async () => {
         setRefreshing(true);
         try {
-          await supabaseRef.current.auth.refreshSession();
+          // Uma promessa por vez, com intervalo mínimo. O timer de 40 min e um
+          // segundo efeito (Strict Mode) não disparam dois refresh juntos.
+          await renovarSessaoDoNavegador();
         } finally {
           setRefreshing(false);
         }

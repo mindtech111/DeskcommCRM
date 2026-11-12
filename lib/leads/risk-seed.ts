@@ -1,5 +1,6 @@
 import { protecaoAgendaSupabase } from "@/lib/agenda/protecao-followup";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { buscaEmLotes } from "@/lib/supabase/em-lotes";
 
 import { classifyRisk, resolveStageWindow, type RiskBucket } from "@/lib/leads/risk-radar";
 import { sinceDoBucket } from "@/lib/leads/risk-since";
@@ -132,15 +133,22 @@ async function coletaEClassifica(
   const contactIds = [...new Set(leads.map((l) => l.contact_id).filter((c): c is string => !!c))];
   const followupPorContato = new Set<string>();
   if (contactIds.length > 0) {
-    const { data: jobs } = await admin
-      .from("cron_jobs")
-      .select("contact_id")
-      .eq("organization_id", organizationId)
-      .eq("kind", "at")
-      .eq("enabled", true)
-      .gt("next_run_at", now.toISOString())
-      .in("contact_id", contactIds);
-    for (const j of (jobs ?? []) as Array<{ contact_id: string }>) {
+    // Sequencial: a estreia pode ver TODOS os negócios abertos, e disparar os
+    // lotes juntos repetiria a rajada que a URL única já causava.
+    const { data: jobs } = await buscaEmLotes(
+      contactIds,
+      (lote) =>
+        admin
+          .from("cron_jobs")
+          .select("contact_id")
+          .eq("organization_id", organizationId)
+          .eq("kind", "at")
+          .eq("enabled", true)
+          .gt("next_run_at", now.toISOString())
+          .in("contact_id", lote),
+      { paralelo: false },
+    );
+    for (const j of jobs) {
       followupPorContato.add(j.contact_id);
     }
   }

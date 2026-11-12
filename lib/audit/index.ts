@@ -70,7 +70,8 @@ export async function audit(entry: AuditEntry): Promise<void> {
         };
       } else if (entry.actorUserId && !entry.actorApiTokenId) {
         const db = await createClient();
-        const { data: { user } } = await db.auth.getUser();
+        const { usuarioValidado } = await import("@/lib/auth/usuario-da-sessao");
+        const { data: { user } } = await usuarioValidado();
         if (user?.id === entry.actorUserId) {
           const { readSupportContext } = await import("@/lib/impersonate/support");
           const support = await readSupportContext(db);

@@ -5,7 +5,7 @@ import { brandTheme } from "@/lib/branding";
 import { marcaDaSaida } from "@/lib/branding/saida";
 import { idiomaDoVisitante } from "@/lib/i18n/idiomaAnonimo";
 import { traduzir } from "@/lib/i18n/dicionario";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioValidado } from "@/lib/auth/usuario-da-sessao";
 
 /**
  * A página inicial pública.
@@ -20,16 +20,15 @@ import { createClient } from "@/lib/supabase/server";
  * lá muda. O nome vem da marca resolvida (`marcaDaSaida`: banco acima do
  * `.env`), nunca de texto fixo: uma imagem serve todas as marcas.
  *
- * `getUser()` e nunca `getSession()`: o redirecionamento só vale para sessão que
- * o servidor de autenticação confirmou.
+ * `usuarioValidado()` chama `getUser()` — nunca `getSession()`: o
+ * redirecionamento só vale para sessão que o servidor de autenticação confirmou.
  */
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await usuarioValidado();
   if (user) redirect("/app");
   // Fork Mindtech: com tema, a porta de entrada é o próprio login (privacidade e
   // termos seguem linkados no painel da marca). Sem tema, a página pública fica.

@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { marcaDaSaida } from "@/lib/branding/saida";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioValidado } from "@/lib/auth/usuario-da-sessao";
 import { IdiomaProvider } from "@/lib/i18n/IdiomaProvider";
 import { idiomaDoVisitante } from "@/lib/i18n/idiomaAnonimo";
 import { traduzir } from "@/lib/i18n/dicionario";
@@ -21,10 +21,9 @@ export default async function LegalLayout({ children }: { children: React.ReactN
   const marca = await marcaDaSaida(null);
   // Fora da árvore de `app/app/layout.tsx` — sem o `IdiomaProvider` de lá, então
   // resolve o idioma direto, como as páginas filhas (`privacy`/`terms`).
-  const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await usuarioValidado();
   const idioma = await idiomaDoVisitante(
     (user?.user_metadata?.locale as string | undefined) ?? null,
   );

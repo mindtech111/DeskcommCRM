@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { protecaoAgendaPg, protecaoAgendaSupabase } from "@/lib/agenda/protecao-followup";
+import { IDS_POR_LOTE } from "@/lib/supabase/em-lotes";
 import { assertAgendaEffectSupabase } from "@/lib/agenda/efeito";
 import { logger } from "@/lib/logger";
 const now = new Date("2026-09-06T12:00:00Z");
@@ -79,4 +80,26 @@ it("falha de página posterior não transforma leitura parcial em ausência", as
   ).toMatchObject({ adiar: true, motivo: "leitura_indisponivel" });
   expect(warn).toHaveBeenCalledOnce();
   warn.mockRestore();
+});
+it("250 contatos não vão numa URL só — cada .in fica no teto do lote", async () => {
+  const contatos = Array.from({ length: 250 }, (_, i) => `c-${i}`);
+  const vistos: string[][] = [];
+  const q = {
+    select: () => q,
+    eq: () => q,
+    in: (col: string, vals: string[]) => {
+      if (col === "contact_id") vistos.push(vals);
+      return q;
+    },
+    order: () => q,
+    limit: () => q,
+    gt: () => q,
+    single: async () => ({ data: { settings: {} }, error: null }),
+    then: (resolve: (v: unknown) => unknown) =>
+      Promise.resolve({ data: [], error: null }).then(resolve),
+  };
+  await protecaoAgendaSupabase({ from: () => q } as never, "org", contatos, now);
+  expect(vistos.length).toBe(Math.ceil(250 / IDS_POR_LOTE));
+  expect(vistos.every((lote) => lote.length <= IDS_POR_LOTE)).toBe(true);
+  expect(vistos.flat()).toEqual(contatos);
 });

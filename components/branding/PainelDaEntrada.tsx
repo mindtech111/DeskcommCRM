@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 
 import type { BrandTheme } from "@/lib/branding";
+import { useT } from "@/lib/i18n/IdiomaProvider";
 
 /**
  * Painel da marca nas telas de acesso (login, recuperação, MFA, cadastro) — Fork Mindtech.
@@ -21,6 +24,7 @@ const PAINEIS: Record<Exclude<BrandTheme, "default">, { logo: string; titulo: st
 };
 
 export function PainelDaEntrada({ tema, nome }: { tema: Exclude<BrandTheme, "default">; nome: string }) {
+  const t = useT();
   const p = PAINEIS[tema];
   return (
     <aside className="entrada-painel" aria-label={nome}>
@@ -50,8 +54,8 @@ export function PainelDaEntrada({ tema, nome }: { tema: Exclude<BrandTheme, "def
       </div>
 
       <nav className="entrada-rodape" aria-label="Documentos">
-        <Link href="/legal/privacy">Política de Privacidade</Link>
-        <Link href="/legal/terms">Termos de Uso</Link>
+        <Link href="/legal/privacy">{t("Política de Privacidade")}</Link>
+        <Link href="/legal/terms">{t("Termos de Uso")}</Link>
       </nav>
     </aside>
   );
