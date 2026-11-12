@@ -41,6 +41,7 @@ import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { protecaoAgendaSupabase } from "@/lib/agenda/protecao-followup";
+import { buscaEmLotes } from "@/lib/supabase/em-lotes";
 import { ok, fail } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { TAMANHO_DO_LOTE, TETO_POR_ORGANIZACAO } from "@/lib/automation/cron-de-data";
@@ -189,13 +190,19 @@ async function handle(req: NextRequest): Promise<Response> {
           const contatos = [...new Set(leads.map((l) => l.contact_id as string))];
           // As conversas da PÁGINA, não das páginas juntas: o `.in()` do
           // PostgREST é uma lista na URL, e junção de páginas num só `in()`
-          // trocaria o teto por um URL que o banco recusa.
-          const { data: conversas, error: erroConversas } = await admin
-            .from("conversations")
-            .select(`contact_id, ${coluna}`)
-            .eq("organization_id", org)
-            .in("contact_id", contatos)
-            .limit(1_000);
+          // trocaria o teto por um URL que o banco recusa. A página em si
+          // ainda cabe 200 ids, acima do muro de ~8 KB — por isso o lote de 100.
+          const { data: conversas, error: erroConversas } = await buscaEmLotes(
+            contatos,
+            (lote) =>
+              admin
+                .from("conversations")
+                .select(`contact_id, ${coluna}`)
+                .eq("organization_id", org)
+                .in("contact_id", lote)
+                .limit(1_000),
+            { paralelo: false },
+          );
           if (erroConversas) {
             pular("consulta_falhou");
             falhouNaConsulta = true;

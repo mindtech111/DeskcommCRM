@@ -8,8 +8,21 @@
  */
 
 import { createBrowserClient } from "@supabase/ssr";
+import { criarPortaoDeRenovacao } from "@/lib/supabase/renovacao-unica";
 
 let _client: ReturnType<typeof createBrowserClient> | null = null;
+
+/**
+ * Portão único da renovação explícita. O cliente abaixo desliga o
+ * auto-refresh do SDK: o cookie é httpOnly, o browser não tem o refresh
+ * token, e o timer interno chamaria o Auth sem ele até tomar 429.
+ */
+const renovarPeloPortao = criarPortaoDeRenovacao();
+
+export function renovarSessaoDoNavegador(): Promise<unknown> {
+  const cliente = createClient();
+  return renovarPeloPortao(() => cliente.auth.refreshSession());
+}
 
 /**
  * QUEM DIZ AO SOCKET DO REALTIME QUAL É O TOKEN.
@@ -144,6 +157,15 @@ export function createClient() {
       name: "sb-deskcomm-auth",
       sameSite: "strict",
       path: "/",
+    },
+    // autoRefreshToken fica desligado: a sessão mora em cookie httpOnly, que
+    // este cliente não lê. Com o default ligado, cada instância (e cada aba
+    // que criasse outra) pedia `/auth/v1/token` sem refresh token. A renovação
+    // explícita passa por `renovarSessaoDoNavegador`, uma promessa por vez.
+    auth: {
+      autoRefreshToken: false,
+      persistSession: true,
+      detectSessionInUrl: false,
     },
     realtime: { accessToken: async () => {
       const token = await tokenDoRealtime();

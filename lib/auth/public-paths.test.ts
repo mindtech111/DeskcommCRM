@@ -91,7 +91,7 @@ describe("isPublicPath", () => {
   /**
    * `/account-suspended` NÃO é mais rota pública (issue #2016). Quem cai nela
    * vem do redirect do layout de `/app` quando a organização está suspensa —
-   * já com sessão. Ser pública fazia o `proxy` sair ANTES do `getUser()`, que é
+   * já com sessão. Ser pública fazia o `proxy` sair ANTES do `getSession()`, que é
    * quem renova o cookie da sessão; e o refresh que a própria página tenta no
    * Server Component é ignorado (`lib/supabase/server.ts`: `setAll` é no-op em
    * Server Component). Resultado: sessão que expira com a pessoa nessa tela não

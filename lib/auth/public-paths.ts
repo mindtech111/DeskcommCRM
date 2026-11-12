@@ -80,7 +80,7 @@ export const PUBLIC_PATHS: RegExp[] = [
   /^\/api\/mcp(\/.*)?$/,
   // GET /api/v1/contacts aceita SESSÃO ou Bearer `dsk_...` (api_tokens) — a
   // MESMA dualidade de `/api/mcp` acima. Sem esta entrada, o proxy responde
-  // 401 antes de o Bearer chegar à rota, porque `getUser()` aqui só enxerga
+  // 401 antes de o Bearer chegar à rota, porque a sessão do proxy só enxerga
   // cookie. A auth de verdade (sessão OU token, org nunca vinda do cliente)
   // mora DENTRO da rota (`app/api/v1/contacts/route.ts`), igual aos casos de
   // `/api/v1/system/agent` e `/api/v1/cron/` acima — "público" aqui quer dizer

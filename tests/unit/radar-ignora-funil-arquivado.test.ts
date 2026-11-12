@@ -52,6 +52,7 @@ function bancoFalso(tabelas: Record<string, Linha[]>, registro: ChamadaIn[] = []
         linhas = linhas.filter((l) => !vals.includes(String(l[col])));
         return chain;
       },
+      gt: () => chain,
       order: () => chain,
       // HONRA o teto. Sem isto, "cortar na consulta" e "cortar em JS depois do
       // `.limit()`" produzem a MESMA saída no dublê, e o teste não distingue as
@@ -183,5 +184,42 @@ describe("radar de risco e funil arquivado", () => {
     // mesma lista — o corte só descobre de que funil o lead é depois de perguntar.
     expect(porLote.reduce((soma, c) => soma + c.quantos, 0)).toBe(quantas + 1);
     for (const c of porLote) expect(c.quantos).toBeLessThanOrEqual(100);
+  });
+
+  it("contact_id=in viaja em lotes de no máximo 100 e não perde contato", async () => {
+    const quantas = 250;
+    const leads = Array.from({ length: quantas }, (_, i) => ({
+      id: `lead-${i}`,
+      organization_id: ORG,
+      status: "open",
+      title: `Aberto ${i}`,
+      pipeline_id: "funil-ativo",
+      contact_id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+      owner_user_id: null,
+      owner_kind: null,
+      owner_agent_id: null,
+      stage_id: null,
+      last_activity_at: HA_MUITO,
+      created_at: HA_MUITO,
+    }));
+    const registro: ChamadaIn[] = [];
+    const db = bancoFalso(
+      {
+        crm_pipelines: [{ id: "funil-ativo", organization_id: ORG, is_archived: false }],
+        crm_leads: leads,
+        demandas: [],
+      },
+      registro,
+    );
+    await carregaRadarDeRisco(db, { organizationId: ORG, now: AGORA });
+
+    const conversas = registro.filter((c) => c.tabela === "conversations" && c.coluna === "contact_id");
+    expect(conversas.length).toBeGreaterThan(1);
+    expect(conversas.reduce((soma, c) => soma + c.quantos, 0)).toBe(quantas);
+    for (const c of conversas) expect(c.quantos).toBeLessThanOrEqual(100);
+
+    const contatos = registro.filter((c) => c.tabela === "contacts" && c.coluna === "id");
+    expect(contatos.reduce((soma, c) => soma + c.quantos, 0)).toBe(quantas);
+    for (const c of contatos) expect(c.quantos).toBeLessThanOrEqual(100);
   });
 });

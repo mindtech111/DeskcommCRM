@@ -161,10 +161,11 @@ describe("urlDoSupabaseNoServidor — PRESENTE aponta o servidor para a URL nova
   });
 
   it("presente: o proxy valida a sessão contra a URL de servidor", async () => {
-    // O `proxy` (Edge) é quem valida o JWT de TODA requisição: se o `getUser`
-    // dele não alcançar o Kong, toda navegação de uma instalação com Kong
-    // privado cai para o login. A BASE continua pública (#1786) — o que leva a
-    // requisição ao endereço de servidor é o `global.fetch` que ele passa.
+    // O `proxy` renova a sessão (getSession) e o fetch dele tem de alcançar o
+    // Kong: senão o refresh de uma instalação com Kong privado não grava o
+    // cookie novo. A BASE continua pública (#1786) — o que leva a requisição
+    // ao endereço de servidor é o `global.fetch` que ele passa. Quem autoriza
+    // é `getUser()` no layout, não este refresh.
     const vistas: string[] = [];
     const desvios: ((entrada: string) => Promise<Response>)[] = [];
     vi.doMock("@/lib/env", () => mockDoEnv({ SUPABASE_SERVER_URL: PRIVADA }));
@@ -178,6 +179,7 @@ describe("urlDoSupabaseNoServidor — PRESENTE aponta o servidor para a URL nova
           if (opcoes.global?.fetch) desvios.push(opcoes.global.fetch);
           return {
             auth: {
+              getSession: async () => ({ data: { session: { user: { id: "u1" } } }, error: null }),
               getUser: async () => ({ data: { user: { id: "u1" } } }),
             },
             rpc: async () => ({ data: true }),

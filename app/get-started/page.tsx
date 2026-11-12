@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioValidado } from "@/lib/auth/usuario-da-sessao";
 import { marcaDaSaida } from "@/lib/branding/saida";
 import { RecoverOrganizationForm } from "@/components/auth/RecoverOrganizationForm";
 import { modoDeCadastro } from "@/lib/auth/politica-de-cadastro";
@@ -36,10 +36,9 @@ export default async function GetStartedPage() {
   // exceção sairia mais caro que esta leitura, que só acontece aqui. Vale para
   // quem chega pelo cadastro com confirmação de e-mail desligada: o campo já
   // vem preenchido em vez de pedir de novo o que ela acabou de informar.
-  const supabase = await createClient();
   const {
     data: { user: authUser },
-  } = await supabase.auth.getUser();
+  } = await usuarioValidado();
   const nomeSugerido = (authUser?.user_metadata?.org_name as string | undefined) ?? undefined;
 
   // Fora da árvore de `app/app/layout.tsx`, como as telas públicas: o idioma

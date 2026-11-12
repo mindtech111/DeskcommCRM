@@ -32,6 +32,7 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { phoneLookupVariants } from "@/lib/channels/phone-variants";
 import { CSV_MAX_BYTES, CSV_MAX_DATA_ROWS, decodificarCsv } from "@/lib/contacts/csv";
+import { IDS_POR_LOTE, buscaEmLotes } from "@/lib/supabase/em-lotes";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { lerPlanilhaDeLeads, type ErroDaLinha } from "@/lib/leads/planilha";
 import { createLeadHandler } from "@/app/api/v1/leads/_handler";
@@ -327,11 +328,13 @@ async function desfazContatosCriados(
 ): Promise<void> {
   if (ids.length === 0) return;
   try {
-    const { data: usados, error: erroDaLeitura } = await supabase
-      .from("crm_leads")
-      .select("contact_id")
-      .eq("organization_id", orgId)
-      .in("contact_id", ids);
+    const { data: usados, error: erroDaLeitura } = await buscaEmLotes(ids, (lote) =>
+      supabase
+        .from("crm_leads")
+        .select("contact_id")
+        .eq("organization_id", orgId)
+        .in("contact_id", lote),
+    );
     if (erroDaLeitura) throw new Error(erroDaLeitura.message);
 
     const comNegocio = new Set(
@@ -340,12 +343,14 @@ async function desfazContatosCriados(
     const orfaos = ids.filter((id) => !comNegocio.has(id));
     if (orfaos.length === 0) return;
 
-    const { error: erroDoDelete } = await supabase
-      .from("contacts")
-      .delete()
-      .eq("organization_id", orgId)
-      .in("id", orfaos);
-    if (erroDoDelete) throw new Error(erroDoDelete.message);
+    for (let i = 0; i < orfaos.length; i += IDS_POR_LOTE) {
+      const { error: erroDoDelete } = await supabase
+        .from("contacts")
+        .delete()
+        .eq("organization_id", orgId)
+        .in("id", orfaos.slice(i, i + IDS_POR_LOTE));
+      if (erroDoDelete) throw new Error(erroDoDelete.message);
+    }
   } catch (err) {
     logger.warn("[leads.import] não devolvi os contatos criados após a recusa", {
       organizationId: orgId,

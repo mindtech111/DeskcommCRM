@@ -12,7 +12,7 @@ import Link from "next/link";
 
 import { verifyInviteToken } from "@/lib/auth/invite-token";
 import { authRateLimited, AUTH_LIMITS } from "@/lib/auth/rate-limit";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioValidado } from "@/lib/auth/usuario-da-sessao";
 import { AcceptInviteForm } from "./AcceptInviteForm";
 import { IdiomaProvider } from "@/lib/i18n/IdiomaProvider";
 import { idiomaDoVisitante } from "@/lib/i18n/idiomaAnonimo";
@@ -34,10 +34,9 @@ export default async function AcceptInvitePage({ params }: PageProps) {
   // abaixo (inclusive as de erro) precisa do mesmo idioma — quem ainda não tem
   // conta cai no ramo sem `user` e usa o `Accept-Language` do navegador antes
   // do padrão (`idiomaDoVisitante`).
-  const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await usuarioValidado();
   const idioma = await idiomaDoVisitante(
     (user?.user_metadata?.locale as string | undefined) ?? null,
   );

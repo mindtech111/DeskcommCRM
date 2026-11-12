@@ -44,6 +44,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { Logger } from '@/lib/agent-engine/obs/logger';
+import { esperaAposFalha } from '@/lib/supabase/fetch-com-recuo';
 import { sincronizarAvisoDoLacoDeEventLog } from '@/lib/event-log/aviso-do-laco';
 // `import type` e nunca import de valor: em runtime esta linha desaparece, e é
 // isso que mantém a cadeia que termina em `@/lib/env` fora do boot do worker.
@@ -187,6 +188,7 @@ export function proximaEspera(resumo: DrainSummary, knobs: EventLogDrainKnobs): 
 }
 
 function esperar(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted || ms <= 0) return Promise.resolve();
   return new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, ms);
     signal.addEventListener(
@@ -208,18 +210,25 @@ export async function runEventLogDrainLoop(
   const deps = await carregarDepsDoLaco(log);
   if (!deps) return;
 
+  // Falhas seguidas aumentam a espera. Um tick que volta zera: o banco
+  // respondeu, o ritmo configurado volta a valer.
+  let falhasSeguidas = 0;
   while (!signal.aborted) {
     // Tick que EXPLODE não pode acelerar o laço: sem resumo, vale a espera
-    // ociosa. Um banco fora do ar lançaria a cada iteração, e o ritmo rápido
-    // transformaria a indisponibilidade numa tempestade de tentativas.
+    // ociosa — e, se ela for curta, o recuo exponencial. Um banco fora do ar
+    // lançaria a cada iteração, e o ritmo rápido transformaria a
+    // indisponibilidade numa tempestade de tentativas.
     let espera = knobs.idleIntervalMs;
     try {
       const resumo = await deps.drainEventLog(deps.admin, { limit: knobs.batchSize });
+      falhasSeguidas = 0;
       espera = proximaEspera(resumo, knobs);
       if (resumo.done + resumo.retried + resumo.failed + resumo.dead > 0) {
         log.info('event-log drain: tick', { ...resumo });
       }
     } catch (err) {
+      falhasSeguidas += 1;
+      espera = esperaAposFalha(falhasSeguidas, knobs.idleIntervalMs);
       log.error('event-log drain: tick falhou', {
         error: (err instanceof Error ? err.message : String(err)).slice(0, 300),
       });

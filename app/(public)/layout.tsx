@@ -3,7 +3,7 @@ import { PainelDaEntrada } from "@/components/branding/PainelDaEntrada";
 import { brandTheme } from "@/lib/branding";
 import { marcaEhADoProduto } from "@/lib/branding";
 import { marcaDaSaida } from "@/lib/branding/saida";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioValidado } from "@/lib/auth/usuario-da-sessao";
 import { IdiomaProvider } from "@/lib/i18n/IdiomaProvider";
 
 /**
@@ -50,10 +50,9 @@ export default async function PublicLayout({ children }: { children: React.React
   // parcial já criada (primeiro fator verificado, segundo pendente). Onde há
   // sessão, o idioma salvo no perfil vale; sem ela, `IdiomaProvider` já cai no
   // padrão pt-BR sozinho (ver o cabeçalho do provider) — nunca lança.
-  const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await usuarioValidado();
   const locale = (user?.user_metadata?.locale as string | undefined) ?? null;
 
   // Fork Mindtech: instalação com tema ganha a tela dividida (painel da marca +

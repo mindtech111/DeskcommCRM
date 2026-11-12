@@ -609,16 +609,20 @@ export function createSupabaseSilenceSweepDb(admin: SupabaseClient): SilenceSwee
 
     async loadContactIdsEmCooldown(orgId, pointerId, contactIds, cutoffIso) {
       if (contactIds.length === 0) return new Set();
-      const { data, error } = await admin
-        .from("followup_enrollments")
-        .select("contact_id")
-        .eq("organization_id", orgId)
-        .eq("pointer_id", pointerId)
-        .in("contact_id", contactIds)
-        .not("status", "in", `(${STATUS_VIVOS.join(",")})`)
-        .gte("updated_at", cutoffIso);
-      if (error) throw new Error(error.message);
-      return new Set((data ?? []).map((row: { contact_id: string }) => row.contact_id));
+      const achados = new Set<string>();
+      for (let i = 0; i < contactIds.length; i += LOTE_DE_CONTATOS) {
+        const { data, error } = await admin
+          .from("followup_enrollments")
+          .select("contact_id")
+          .eq("organization_id", orgId)
+          .eq("pointer_id", pointerId)
+          .in("contact_id", contactIds.slice(i, i + LOTE_DE_CONTATOS))
+          .not("status", "in", `(${STATUS_VIVOS.join(",")})`)
+          .gte("updated_at", cutoffIso);
+        if (error) throw new Error(error.message);
+        for (const row of (data ?? []) as Array<{ contact_id: string }>) achados.add(row.contact_id);
+      }
+      return achados;
     },
 
     async insertEnrollment(input) {

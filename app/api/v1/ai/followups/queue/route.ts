@@ -27,6 +27,7 @@ import type { NextRequest } from "next/server";
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { statusDaPromessaNaFila } from "@/lib/followup/retorno";
+import { IDS_POR_LOTE } from "@/lib/supabase/em-lotes";
 import { createClient } from "@/lib/supabase/server";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { traduzir } from "@/lib/i18n/dicionario";
@@ -53,6 +54,30 @@ interface CursorPayload {
 function encodeCursor(p: CursorPayload): string {
   return Buffer.from(JSON.stringify(p), "utf8").toString("base64url");
 }
+/**
+ * `contact_id=in.(…)` com a busca de 500 ids estoura a URL (400/414). Cada
+ * lote pede o mesmo `limit+1`: o top global continua dentro da união dos
+ * tops de cada lote (a mesma prova do k-way merge do cabeçalho).
+ */
+async function porLotesDeContato<T>(
+  contactIds: string[] | null,
+  consultar: (
+    lote: string[] | null,
+  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  if (!contactIds || contactIds.length <= IDS_POR_LOTE) {
+    const r = await consultar(contactIds);
+    return r.error ? { data: [], error: r.error } : { data: r.data ?? [], error: null };
+  }
+  const data: T[] = [];
+  for (let i = 0; i < contactIds.length; i += IDS_POR_LOTE) {
+    const r = await consultar(contactIds.slice(i, i + IDS_POR_LOTE));
+    if (r.error) return { data: [], error: r.error };
+    data.push(...(r.data ?? []));
+  }
+  return { data, error: null };
+}
+
 function decodeCursor(raw: string): CursorPayload | null {
   try {
     const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<CursorPayload>;
@@ -185,56 +210,58 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const skipPromises = status !== null || pointerId !== null;
 
-  // --- fonte 1: enrollments ---
-  let enrollQuery = supabase
-    .from("followup_enrollments")
-    .select(
-      `id, pointer_id, contact_id, status, current_node_id, next_eval_at, outcome, updated_at, agent_id,
-       contacts:contact_id(id, name, display_name, phone_number),
-       followup_flow_pointers:pointer_id(name),
-       ai_agents:agent_id(name)`,
-    )
-    .eq("organization_id", activeOrg.orgId)
-    .order("next_eval_at", { ascending: true, nullsFirst: false })
-    .order("id", { ascending: true })
-    .limit(limit + 1);
-  if (status !== null) enrollQuery = enrollQuery.eq("status", status);
-  if (pointerId !== null) enrollQuery = enrollQuery.eq("pointer_id", pointerId);
-  if (contactIds) enrollQuery = enrollQuery.in("contact_id", contactIds);
-  if (cursor) {
-    enrollQuery =
-      cursor.next_fire_at !== null
-        ? enrollQuery.or(
-            `next_eval_at.gt.${cursor.next_fire_at},and(next_eval_at.eq.${cursor.next_fire_at},id.gt.${cursor.id}),next_eval_at.is.null`,
-          )
-        : enrollQuery.is("next_eval_at", null).gt("id", cursor.id);
-  }
-
-  // --- fonte 2: promessas (cron_jobs kind='at' + job_kind='followup_turn') ---
-  let promiseQuery = supabase
-    .from("cron_jobs")
-    .select(
-      "id, contact_id, next_run_at, enabled, cancelled_at, last_error, payload, contacts:contact_id(id, name, display_name, phone_number)",
-    )
-    .eq("organization_id", activeOrg.orgId)
-    .eq("kind", "at")
-    .eq("job_kind", "followup_turn")
-    .order("next_run_at", { ascending: true, nullsFirst: false })
-    .order("id", { ascending: true })
-    .limit(limit + 1);
-  if (contactIds) promiseQuery = promiseQuery.in("contact_id", contactIds);
-  if (cursor) {
-    promiseQuery =
-      cursor.next_fire_at !== null
-        ? promiseQuery.or(
-            `next_run_at.gt.${cursor.next_fire_at},and(next_run_at.eq.${cursor.next_fire_at},id.gt.${cursor.id}),next_run_at.is.null`,
-          )
-        : promiseQuery.is("next_run_at", null).gt("id", cursor.id);
-  }
-
   const [enrollRes, promiseRes] = await Promise.all([
-    enrollQuery,
-    skipPromises ? Promise.resolve({ data: [], error: null }) : promiseQuery,
+    porLotesDeContato(contactIds, (lote) => {
+      let enrollQuery = supabase
+        .from("followup_enrollments")
+        .select(
+          `id, pointer_id, contact_id, status, current_node_id, next_eval_at, outcome, updated_at, agent_id,
+           contacts:contact_id(id, name, display_name, phone_number),
+           followup_flow_pointers:pointer_id(name),
+           ai_agents:agent_id(name)`,
+        )
+        .eq("organization_id", activeOrg.orgId)
+        .order("next_eval_at", { ascending: true, nullsFirst: false })
+        .order("id", { ascending: true })
+        .limit(limit + 1);
+      if (status !== null) enrollQuery = enrollQuery.eq("status", status);
+      if (pointerId !== null) enrollQuery = enrollQuery.eq("pointer_id", pointerId);
+      if (lote) enrollQuery = enrollQuery.in("contact_id", lote);
+      if (cursor) {
+        enrollQuery =
+          cursor.next_fire_at !== null
+            ? enrollQuery.or(
+                `next_eval_at.gt.${cursor.next_fire_at},and(next_eval_at.eq.${cursor.next_fire_at},id.gt.${cursor.id}),next_eval_at.is.null`,
+              )
+            : enrollQuery.is("next_eval_at", null).gt("id", cursor.id);
+      }
+      return enrollQuery;
+    }),
+    skipPromises
+      ? Promise.resolve({ data: [], error: null })
+      : porLotesDeContato(contactIds, (lote) => {
+          let promiseQuery = supabase
+            .from("cron_jobs")
+            .select(
+              "id, contact_id, next_run_at, enabled, cancelled_at, last_error, payload, contacts:contact_id(id, name, display_name, phone_number)",
+            )
+            .eq("organization_id", activeOrg.orgId)
+            .eq("kind", "at")
+            .eq("job_kind", "followup_turn")
+            .order("next_run_at", { ascending: true, nullsFirst: false })
+            .order("id", { ascending: true })
+            .limit(limit + 1);
+          if (lote) promiseQuery = promiseQuery.in("contact_id", lote);
+          if (cursor) {
+            promiseQuery =
+              cursor.next_fire_at !== null
+                ? promiseQuery.or(
+                    `next_run_at.gt.${cursor.next_fire_at},and(next_run_at.eq.${cursor.next_fire_at},id.gt.${cursor.id}),next_run_at.is.null`,
+                  )
+                : promiseQuery.is("next_run_at", null).gt("id", cursor.id);
+          }
+          return promiseQuery;
+        }),
   ]);
   if (enrollRes.error) return fail("internal_error", enrollRes.error.message, 500, { requestId });
   if (promiseRes.error) return fail("internal_error", promiseRes.error.message, 500, { requestId });

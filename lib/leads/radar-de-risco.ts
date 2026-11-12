@@ -238,37 +238,61 @@ export async function carregaRadarDeRisco(
   const nameByContact = new Map<string, string | null>();
 
   if (contactIds.length > 0) {
+    // `contact_id=in.(…)` com o SCAN_CAP inteiro (500 uuids) estoura a URL e o
+    // gateway devolve 400/414 — o radar caía justamente na org com mais
+    // negócios. Cada id vai num lote só; o primeiro visto de cada contato
+    // continua sendo o primeiro da consulta daquele lote.
+    const lerPorContatos = async <T>(
+      consultar: (lote: string[]) => PromiseLike<{ data: T[] | null }>,
+    ): Promise<T[]> => {
+      const saida: T[] = [];
+      for (let i = 0; i < contactIds.length; i += IDS_POR_CONSULTA) {
+        const { data } = await consultar(contactIds.slice(i, i + IDS_POR_CONSULTA));
+        saida.push(...(data ?? []));
+      }
+      return saida;
+    };
     const [followups, convs, contacts] = await Promise.all([
-      admin
-        .from("cron_jobs")
-        .select("contact_id, next_run_at")
-        .eq("organization_id", organizationId)
-        .eq("kind", "at")
-        .eq("enabled", true)
-        .gt("next_run_at", nowIso)
-        .in("contact_id", contactIds),
-      admin
-        .from("conversations")
-        .select("id, contact_id, assignee_kind")
-        .eq("organization_id", organizationId)
-        .in("contact_id", contactIds),
-      admin
-        .from("contacts")
-        .select("id, name, display_name")
-        .eq("organization_id", organizationId)
-        .in("id", contactIds),
+      lerPorContatos<{ contact_id: string; next_run_at: string }>((lote) =>
+        admin
+          .from("cron_jobs")
+          .select("contact_id, next_run_at")
+          .eq("organization_id", organizationId)
+          .eq("kind", "at")
+          .eq("enabled", true)
+          .gt("next_run_at", nowIso)
+          .in("contact_id", lote),
+      ),
+      lerPorContatos<{
+        id: string;
+        contact_id: string;
+        assignee_kind: "user" | "ai" | null;
+      }>((lote) =>
+        admin
+          .from("conversations")
+          .select("id, contact_id, assignee_kind")
+          .eq("organization_id", organizationId)
+          .in("contact_id", lote),
+      ),
+      lerPorContatos<ContatoNomeavel & { id: string }>((lote) =>
+        admin
+          .from("contacts")
+          .select("id, name, display_name")
+          .eq("organization_id", organizationId)
+          .in("id", lote),
+      ),
     ]);
 
-    for (const f of followups.data ?? []) {
+    for (const f of followups) {
       const prev = followupByContact.get(f.contact_id);
       if (!prev || f.next_run_at < prev) followupByContact.set(f.contact_id, f.next_run_at);
     }
-    for (const c of convs.data ?? []) {
+    for (const c of convs) {
       if (!convByContact.has(c.contact_id)) {
         convByContact.set(c.contact_id, { id: c.id, assignee_kind: c.assignee_kind ?? null });
       }
     }
-    for (const p of contacts.data ?? []) {
+    for (const p of contacts) {
       nameByContact.set(p.id, nomeDoContato(p));
     }
   }
