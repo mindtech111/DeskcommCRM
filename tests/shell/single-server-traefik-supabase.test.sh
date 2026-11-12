@@ -183,7 +183,11 @@ check "entrypoint/certresolver usam os mesmos defaults do docker-compose.traefik
 check "o serviço aponta para a porta do Envoy (8000)" \
   grep -qF 'traefik.http.services.deskcomm-supabase.loadbalancer.server.port: "8000"' "$OVERRIDE"
 check "prioridade 500: acima da rota geral do app e abaixo do bloqueio 1000 do WAHA" \
-  bash -c 'grep -qF "deskcomm-supabase.priority: \"500\"" "$1" && grep -qF "deskcomm-waha-block.priority: \"1000\"" "$2"' _ "$OVERRIDE" "$TRAEFIK_YML"
+  bash -c 'grep -qF "deskcomm-supabase.priority: \"500\"" "$1" && grep -qF "\${TRAEFIK_ROUTER:-deskcomm}-waha-block.priority=1000" "$2"' _ "$OVERRIDE" "$TRAEFIK_YML"
+# ↑ O docker-compose.traefik.yml escreve os labels em LISTA e com o prefixo
+#   `${TRAEFIK_ROUTER:-deskcomm}` desde o 82505b8cd (fork: duas instalações no
+#   mesmo Traefik). O default renderiza o mesmo `deskcomm-waha-block` de antes;
+#   a conferência acompanha a forma do arquivo, e o valor 1000 segue exigido.
 check "gzip do Caddyfile acompanha a rota do Supabase" \
   grep -qF 'deskcomm-supabase-compress.compress: "true"' "$OVERRIDE"
 
