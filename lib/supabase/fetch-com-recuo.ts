@@ -159,6 +159,13 @@ export function fetchComRecuo(
   const aleatorio = opcoes.aleatorio ?? Math.random;
 
   return async (input, init) => {
+    // O `next build` gera página estática sem banco. A marca e os módulos já
+    // caem no .env quando o fetch falha. Esperar aqui estoura o teto de 60s
+    // por página e o build inteiro morre.
+    if (process.env.NEXT_PHASE === "phase-production-build") {
+      return interno(input, init);
+    }
+
     const signal = init?.signal ?? undefined;
     const falta = pausaAte - agora();
     if (falta > 0) await dormir(falta, signal ?? undefined);

@@ -25,6 +25,33 @@ function relogio() {
 }
 
 describe("fetch do admin recua em vez de martelar", () => {
+  it("durante o next build a falha volta na hora", async () => {
+    const anterior = process.env.NEXT_PHASE;
+    process.env.NEXT_PHASE = "phase-production-build";
+    try {
+      let i = 0;
+      const esperas: number[] = [];
+      const fetch = fetchComRecuo(
+        async () => {
+          i += 1;
+          return new Response(null, { status: 500 });
+        },
+        {
+          dormir: async (ms) => {
+            esperas.push(ms);
+          },
+          aleatorio: () => 0,
+        },
+      );
+      expect((await fetch("https://db.exemplo/rest/v1/contacts", { method: "GET" })).status).toBe(500);
+      expect(i).toBe(1);
+      expect(esperas).toEqual([]);
+    } finally {
+      if (anterior === undefined) delete process.env.NEXT_PHASE;
+      else process.env.NEXT_PHASE = anterior;
+    }
+  });
+
   it("na suíte, sem relógio injetado, a falha volta na hora", async () => {
     let i = 0;
     const fetch = fetchComRecuo(async () => {
