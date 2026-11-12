@@ -480,7 +480,7 @@ describe.skipIf(!temAwk)("recriar o que falta: o comando INTEIRO, nunca o nome",
       }
     });
 
-    it("⛔ SABOTAGEM: sem o pin, as mesmas listas acusam regra que existe", () => {
+    it("⛔ SABOTAGEM: sem o pin, o comm reclama — e o que ele acusa, existe", () => {
       // A metade que importa: prova que o caso acima sabe ficar vermelho. Se
       // aqui der vazio, este ambiente não exercita o defeito — e o verde do
       // caso anterior não é prova de nada nele.
@@ -490,10 +490,19 @@ describe.skipIf(!temAwk)("recriar o que falta: o comando INTEIRO, nunca o nome",
       if (!hostil) return; // declarado no PR: sem locale hostil, não medido
 
       const r = comparar(regras, noBanco, "sort -u", semPin(linhaDeComparacao()), hostil);
+      // O `comm` do uutils (o coreutils do Ubuntu 26.04) reclama sempre que o
+      // `sort` do mesmo binário ordenou pelo locale. A ACUSAÇÃO de regra que
+      // existe depende do conjunto de nomes. Medido com uutils 0.8.0 e
+      // en_US.UTF-8, sem o pin:
+      // - baseline anterior à 0690: faltando=2
+      //   (`org_voice_calls_admin_write`, `org_voice_calls_select`);
+      // - baseline com a 0690: faltando=0, e o aviso permanece.
+      // A 0690 parte o `for all` e a última operação de `orgs_select` passa a
+      // ser `create`, então essa chave cai entre `org_guardrail_*` e
+      // `org_voice_calls_*`. O `comm` ainda perde o passo (o aviso), mas não
+      // emite acusação. Exigir `faltando` não-vazio reprova um banco íntegro.
+      // O que não pode acontecer é acusar regra que não existe.
       expect(r.stderr).toContain("not in sorted order");
-      expect(r.faltando.length).toBeGreaterThan(0);
-      // E o que ele acusa existe de verdade no banco — é alarme falso, que é o
-      // que dói: a tela manda procurar uma regra que nunca faltou.
       for (const f of r.faltando) expect(noBanco).toContain(f);
     });
   });

@@ -14,11 +14,14 @@ const container = process.env.TEST_DB_CONTAINER;
 if (!container) {
   throw new Error("TEST_DB_CONTAINER not set — rode esta suíte via `pnpm test:db`");
 }
+// O estreitamento do `if` não entra na closure no TypeScript 6: `container`
+// continua `string | undefined` dentro de `sql`. A anotação confere o tipo aqui.
+const containerName: string = container;
 
 function sql(script: string): string {
   return execFileSync(
     "docker",
-    ["exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-tA", "-f", "-"],
+    ["exec", "-i", containerName, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-tA", "-f", "-"],
     { input: script, encoding: "utf8" },
   ).trim();
 }

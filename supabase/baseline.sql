@@ -54493,6 +54493,60 @@ grant execute on function public.fn_conversa_remove_trechos_do_rag(uuid,uuid) to
 
 notify pgrst,'reload schema';
 
+-- ---- visibilidade do negócio, uma vez por consulta (migration 0690) ----
+-- A definição fica antes da varredura de anon: função criada depois dela
+-- nasce com EXECUTE para anon, e a varredura não a alcança mais.
+-- O revoke abaixo cobre as duas origens; a varredura repete a cura.
+
+-- Visibilidade do negócio, uma vez por consulta. O corpo repete a decisão de
+-- fn_can_view_lead (papel, modo, dono, admin de plataforma, sessão de suporte)
+-- sem chamar a função em cada linha.
+create or replace function public.fn_contexto_de_visibilidade_de_lead()
+returns table (organization_id uuid, role text, visibility_mode text, user_id uuid)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with ctx as (
+    select public.fn_support_context() as s, (select auth.uid()) as uid
+  ),
+  membros as (
+    select uo.organization_id,
+           case
+             when c.s->>'status' = 'active'
+              and (c.s->>'organization_id')::uuid = uo.organization_id
+             then case when c.s->>'access_mode' = 'full' then 'admin' else 'viewer' end
+             else uo.role
+           end as role,
+           coalesce(o.settings->>'visibility_mode', 'own_and_unassigned') as visibility_mode,
+           c.uid as user_id
+    from ctx c
+    join public.user_organizations uo on uo.user_id = c.uid and uo.revoked_at is null
+    join public.organizations o on o.id = uo.organization_id
+  ),
+  suporte as (
+    select (c.s->>'organization_id')::uuid,
+           case when c.s->>'access_mode' = 'full' then 'admin' else 'viewer' end,
+           coalesce(o.settings->>'visibility_mode', 'own_and_unassigned'),
+           c.uid
+    from ctx c
+    join public.organizations o on o.id = (c.s->>'organization_id')::uuid
+    where c.s->>'status' = 'active'
+      and (c.s->>'organization_id') is not null
+      and not exists (
+        select 1 from membros m
+        where m.organization_id = (c.s->>'organization_id')::uuid
+      )
+  )
+  select * from membros
+  union all
+  select * from suporte;
+$$;
+
+revoke all on function public.fn_contexto_de_visibilidade_de_lead() from public, anon;
+grant execute on function public.fn_contexto_de_visibilidade_de_lead() to authenticated, service_role;
+
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
 -- ⚠️ DE PROPÓSITO, NENHUMA FUNÇÃO É CRIADA DEPOIS DESTE BLOCO. Apêndice que cria
@@ -59649,55 +59703,8 @@ create policy "recovery_codes_self" on public.user_recovery_codes
   using ((user_id = (select auth.uid())))
   with check ((user_id = (select auth.uid())));
 
-
--- Visibilidade do negócio, uma vez por consulta. O corpo repete a decisão de
--- fn_can_view_lead (papel, modo, dono, admin de plataforma, sessão de suporte)
--- sem chamar a função em cada linha.
-create or replace function public.fn_contexto_de_visibilidade_de_lead()
-returns table (organization_id uuid, role text, visibility_mode text, user_id uuid)
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  with ctx as (
-    select public.fn_support_context() as s, (select auth.uid()) as uid
-  ),
-  membros as (
-    select uo.organization_id,
-           case
-             when c.s->>'status' = 'active'
-              and (c.s->>'organization_id')::uuid = uo.organization_id
-             then case when c.s->>'access_mode' = 'full' then 'admin' else 'viewer' end
-             else uo.role
-           end as role,
-           coalesce(o.settings->>'visibility_mode', 'own_and_unassigned') as visibility_mode,
-           c.uid as user_id
-    from ctx c
-    join public.user_organizations uo on uo.user_id = c.uid and uo.revoked_at is null
-    join public.organizations o on o.id = uo.organization_id
-  ),
-  suporte as (
-    select (c.s->>'organization_id')::uuid,
-           case when c.s->>'access_mode' = 'full' then 'admin' else 'viewer' end,
-           coalesce(o.settings->>'visibility_mode', 'own_and_unassigned'),
-           c.uid
-    from ctx c
-    join public.organizations o on o.id = (c.s->>'organization_id')::uuid
-    where c.s->>'status' = 'active'
-      and (c.s->>'organization_id') is not null
-      and not exists (
-        select 1 from membros m
-        where m.organization_id = (c.s->>'organization_id')::uuid
-      )
-  )
-  select * from membros
-  union all
-  select * from suporte;
-$$;
-
-revoke all on function public.fn_contexto_de_visibilidade_de_lead() from public, anon;
-grant execute on function public.fn_contexto_de_visibilidade_de_lead() to authenticated, service_role;
+-- fn_contexto_de_visibilidade_de_lead está definida antes da varredura de
+-- anon (migration 0690). A policy abaixo é a leitura do quadro.
 
 drop policy if exists "crm_leads_select" on public.crm_leads;
 create policy "crm_leads_select" on public.crm_leads
