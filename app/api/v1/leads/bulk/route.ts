@@ -2,8 +2,9 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * POST /api/v1/leads/bulk
  *
- * Bulk operations on leads (move/assign/tag/delete). Discriminated by `action`.
- * AT-06: max 50 ids per call.
+ * Bulk operations on leads (move/assign/unassign/tag/delete). Discriminated by `action`.
+ * AT-06: max 50 ids per call — exceto assign/unassign, que vão numa escrita só
+ * de até 1000 (`fn_atribuir_leads_em_lote`, migration 0689).
  *
  * Status transitions are NOT performed here — bulk move only changes
  * stage_id/position; the trigger will close-as-won/lost if the target is a
@@ -18,7 +19,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { resolveOwnerPatch } from "@/lib/leads/owner-patch";
 import { emitLeadActivity, stageChangeReason } from "@/lib/leads/activity-emitter";
 import { registraFalhaDeAtividade } from "@/lib/leads/activity-write-failure";
-import { bulkLeadActionSchema, validateRequest } from "@/lib/schemas";
+import { bulkLeadActionSchema, validateBody } from "@/lib/schemas";
 import {
   decideMotivoDaPerda,
   etapaDePerda,
@@ -37,6 +38,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { observeServiceOrigin } from "@/lib/atendimento/origem";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { LEADS_POR_ATRIBUICAO } from "@/lib/kanban/selecao";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
@@ -63,9 +65,38 @@ export async function POST(req: NextRequest): Promise<Response> {
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const user = authz.user;
 
+  let corpo: unknown;
+  try {
+    corpo = await req.json();
+  } catch {
+    return fail("body_malformed", "Body must be valid JSON", 400, { requestId });
+  }
+
+  // `assign` sem dono é recusa com código PRÓPRIO, antes do Zod (que diria só
+  // `validation_error`). Até 09/11/2026 o null aqui era "desatribuir" e um
+  // clique no item errado do menu tirou o responsável de 50 negócios em
+  // produção. Tirar o dono agora é `action: "unassign"`, e o cliente que ainda
+  // manda o contrato antigo recebe o nome da ação certa na mensagem — nunca o
+  // efeito destrutivo por omissão.
+  if (
+    corpo !== null &&
+    typeof corpo === "object" &&
+    (corpo as { action?: unknown }).action === "assign"
+  ) {
+    const params = (corpo as { params?: { owner_user_id?: unknown } }).params;
+    if (params?.owner_user_id == null) {
+      return fail(
+        "owner_required",
+        t('Informe o novo responsável. Para deixar sem responsável, use a ação "unassign".'),
+        422,
+        { requestId },
+      );
+    }
+  }
+
   let input;
   try {
-    input = await validateRequest(bulkLeadActionSchema, req);
+    input = validateBody(bulkLeadActionSchema, corpo);
   } catch (err) {
     if (err instanceof ApiError) {
       return fail(err.code, err.message, err.status, {
@@ -76,52 +107,56 @@ export async function POST(req: NextRequest): Promise<Response> {
     throw err;
   }
 
-  if (input.lead_ids.length > MAX_BULK) {
-    return fail("bulk_too_large", `${t("Máximo")} ${MAX_BULK} ${t("leads por bulk.")}`, 422, { requestId });
+  const trocaDeDono = input.action === "assign" || input.action === "unassign";
+  const teto = trocaDeDono ? LEADS_POR_ATRIBUICAO : MAX_BULK;
+  if (input.lead_ids.length > teto) {
+    return fail("bulk_too_large", `${t("Máximo")} ${teto} ${t("leads por bulk.")}`, 422, { requestId });
   }
 
   // G3-04: assign é reatribuição de dono em lote → piso ≥manager (spec 04 §6.5,
   // INB-03). Gate por-action: move/tag/delete continuam agent+ (piso acima);
-  // só o assign exige manager. Reusa o helper (nada de ROLE_RANK na mão).
-  if (input.action === "assign") {
+  // assign e unassign exigem manager. Reusa o helper (nada de ROLE_RANK na mão).
+  if (input.action === "assign" || input.action === "unassign") {
     const mgr = await requireRole("manager", { requestId, resource: "crm_leads" });
     if (!mgr.ok) return mgr.response;
+  }
 
+  if (input.action === "assign") {
     // Novo dono tem que ser membro ativo agent+ da MESMA org (org de fonte
-    // confiável = authz, nunca body). owner_user_id null = desatribuir (válido).
+    // confiável = authz, nunca body). Sempre presente: o null foi recusado
+    // acima com `owner_required`.
     // A RLS de user_organizations só mostra o próprio membership a um manager,
     // por isso o admin client filtrado pela org resolvida.
     const ownerId = input.params.owner_user_id;
-    if (ownerId !== null) {
-      // INB-09 nota 1: fail-closed. A validação de membership só roda com service
-      // role (a RLS de user_organizations não mostra membership alheio a um
-      // manager). Sem service role NÃO se pode validar o dono → recusar em vez
-      // de atribuir um owner não-verificado. Desatribuir (owner null) segue livre.
-      if (!isServiceRoleConfigured()) {
-        return fail(
-          "owner_validation_unavailable",
-          t("Não foi possível validar o responsável agora. Tente novamente em instantes."),
-          422,
-          { requestId },
-        );
-      }
-      const admin = createAdminClient();
-      const { data: member, error: memberErr } = await admin
-        .from("user_organizations")
-        .select("role")
-        .eq("organization_id", authz.org.orgId)
-        .eq("user_id", ownerId)
-        .is("revoked_at", null)
-        .maybeSingle();
-      if (memberErr) return fail("internal_error", memberErr.message, 500, { requestId });
-      if (!member || member.role === "viewer") {
-        return fail(
-          "invalid_owner",
-          t("Responsável não é um atendente ativo desta organização."),
-          422,
-          { requestId },
-        );
-      }
+    // INB-09 nota 1: fail-closed. A validação de membership só roda com service
+    // role (a RLS de user_organizations não mostra membership alheio a um
+    // manager). Sem service role NÃO se pode validar o dono → recusar em vez
+    // de atribuir um owner não-verificado. (Desatribuir é `unassign`, que não
+    // tem dono a validar.)
+    if (!isServiceRoleConfigured()) {
+      return fail(
+        "owner_validation_unavailable",
+        t("Não foi possível validar o responsável agora. Tente novamente em instantes."),
+        422,
+        { requestId },
+      );
+    }
+    const admin = createAdminClient();
+    const { data: member, error: memberErr } = await admin
+      .from("user_organizations")
+      .select("role")
+      .eq("organization_id", authz.org.orgId)
+      .eq("user_id", ownerId)
+      .is("revoked_at", null)
+      .maybeSingle();
+    if (memberErr) return fail("internal_error", memberErr.message, 500, { requestId });
+    if (!member || member.role === "viewer") {
+      return fail(
+        "invalid_owner",
+        t("Responsável não é um atendente ativo desta organização."),
+        422,
+        { requestId },
+      );
     }
   }
 
@@ -136,17 +171,24 @@ export async function POST(req: NextRequest): Promise<Response> {
   // `status` e `pipeline_id` (já vinha) respondem a OUTRA pergunta, a da
   // retomada (issue #1538): o lote não pode reabrir um negócio encerrado num
   // funil `novo_negocio`, e sem o `status` não há como saber quem ficaria.
-  const { data: scoped } = await supabase
-    .from("crm_leads")
-    .select(
-      "id, organization_id, tags, stage_id, pipeline_id, contact_id, lost_reason, custom_fields, won_reason, status",
-    )
-    .eq("organization_id", organizationId)
-    .in("id", input.lead_ids);
+  //
+  // A troca de dono NÃO lê antes: o lote dela vai até 1000 ids, e `.in("id", …)`
+  // num GET leva todos na URL (~37 mil caracteres). Quem filtra organização e
+  // visibilidade é a própria escrita (`fn_atribuir_leads_em_lote`, invoker, com
+  // `organization_id` explícito), e o que ela devolve é o conjunto tocado.
+  const { data: scoped } = trocaDeDono
+    ? { data: [] as never[] }
+    : await supabase
+        .from("crm_leads")
+        .select(
+          "id, organization_id, tags, stage_id, pipeline_id, contact_id, lost_reason, custom_fields, won_reason, status",
+        )
+        .eq("organization_id", organizationId)
+        .in("id", input.lead_ids);
 
   const visible = scoped ?? [];
   const first = visible[0];
-  if (!first) {
+  if (!first && !trocaDeDono) {
     return fail(
       "not_found",
       t("Nenhum lead acessível na operação."),
@@ -154,7 +196,11 @@ export async function POST(req: NextRequest): Promise<Response> {
       { requestId },
     );
   }
-  const visibleIds = visible.map((r) => r.id);
+  let visibleIds = visible.map((r) => r.id);
+  // Liga os `lead.assigned` (um por negócio, carimbados pelo gatilho) ao
+  // `lead.bulk_assigned` agregado desta chamada — é o que permite ao push
+  // mandar UM aviso só (migration 0689).
+  const loteId = trocaDeDono ? randomUUID() : null;
 
   let updatedCount = 0;
   const nowIso = new Date().toISOString();
@@ -471,12 +517,18 @@ export async function POST(req: NextRequest): Promise<Response> {
       );
       break;
     }
-    case "assign": {
+    case "assign":
+    case "unassign": {
       // 0070: o trio de posse vem do helper compartilhado. Escrever só
       // owner_user_id aqui quebrava de dois jeitos: lote com algum lead de dono
       // AGENTE estourava 23514 e derrubava a operação inteira; e lead sem dono
       // ganhava dono sem owner_kind (drift silencioso).
-      const owner = resolveOwnerPatch({ owner_user_id: input.params.owner_user_id });
+      //
+      // O null explícito (limpar os três campos) só chega ao helper pelo
+      // `unassign`: no `assign` o dono é UUID obrigatório desde o schema.
+      const owner = resolveOwnerPatch({
+        owner_user_id: input.action === "assign" ? input.params.owner_user_id : null,
+      });
       if (!owner.ok || !owner.patch) {
         return fail(
           "validation_failed",
@@ -485,20 +537,22 @@ export async function POST(req: NextRequest): Promise<Response> {
           { requestId },
         );
       }
-      const patch: Record<string, unknown> = {
-        ...owner.patch,
-        updated_at: nowIso,
-      };
-      if (owner.patch.owner_kind !== null) {
-        patch.assigned_at = nowIso;
-      }
-      const { data, error } = await supabase
-        .from("crm_leads")
-        .update(patch)
-        .in("id", visibleIds)
-        .select("id");
+      // Migration 0689: UMA escrita só, tudo ou nada, com o trio de posse do
+      // `resolveOwnerPatch` (a função grava o mesmo trio: user+'user' ou
+      // null+null+null). O gatilho segue emitindo um `lead.assigned` por
+      // negócio, agora com `lote_id`.
+      const { data, error } = await supabase.rpc("fn_atribuir_leads_em_lote", {
+        p_organization_id: organizationId,
+        p_lead_ids: input.lead_ids,
+        p_owner_user_id: owner.patch.owner_user_id,
+        p_lote_id: loteId,
+      });
       if (error) return fail("internal_error", error.message, 500, { requestId });
-      updatedCount = data?.length ?? 0;
+      visibleIds = ((data ?? []) as Array<{ lead_id: string }>).map((r) => r.lead_id);
+      if (visibleIds.length === 0) {
+        return fail("not_found", t("Nenhum lead acessível na operação."), 404, { requestId });
+      }
+      updatedCount = visibleIds.length;
       break;
     }
     case "tag": {
@@ -552,10 +606,18 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   // Aggregate event + aggregate audit (one record per bulk call).
+  //
+  // `unassign` emite o MESMO `lead.bulk_assigned` que o assign, com
+  // `params.owner_user_id: null` e `action: "unassign"` — o fato é "o dono de N
+  // negócios mudou", e era exatamente o que este evento já registrava quando o
+  // null chegava pelo assign. Um tipo novo pediria entrada na lista de
+  // registro do banco (`fn_event_log_e_registro`, 0239) sem ganho para ninguém.
+  const ownerDoLote =
+    input.action === "assign" ? input.params.owner_user_id : input.action === "unassign" ? null : undefined;
   const eventType =
     input.action === "move"
       ? "lead.bulk_moved"
-      : input.action === "assign"
+      : input.action === "assign" || input.action === "unassign"
         ? "lead.bulk_assigned"
         : input.action === "tag"
           ? "lead.bulk_tagged"
@@ -569,7 +631,13 @@ export async function POST(req: NextRequest): Promise<Response> {
       p_payload: {
         action: input.action,
         lead_ids: visibleIds,
-        params: "params" in input ? input.params : {},
+        ...(loteId ? { lote_id: loteId } : {}),
+        params:
+          ownerDoLote !== undefined
+            ? { owner_user_id: ownerDoLote }
+            : "params" in input
+              ? (input.params ?? {})
+              : {},
       },
       p_metadata: { request_id: requestId, actor_user_id: user.id },
       p_organization_id: organizationId,
@@ -578,10 +646,17 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (error) console.error("[lead.bulk] emit_event failed", error.message);
     });
 
-  // Assign audita com action agregada dedicada (spec 04 §6.5); as demais ações
-  // mantêm o code genérico. Uma única entrada por chamada, com a contagem.
+  // Assign e unassign auditam com action agregada dedicada (spec 04 §6.5) — e
+  // separadas: "quem deixou estes negócios sem responsável?" tem de ser
+  // pergunta de filtro, não de leitura de metadata. As demais ações mantêm o
+  // code genérico. Uma única entrada por chamada, com a contagem.
   await audit({
-    action: input.action === "assign" ? "leads.bulk_assigned" : "lead.bulk_action",
+    action:
+      input.action === "assign"
+        ? "leads.bulk_assigned"
+        : input.action === "unassign"
+          ? "leads.bulk_unassigned"
+          : "lead.bulk_action",
     actorUserId: user.id,
     organizationId,
     resourceType: "crm_lead",
@@ -592,8 +667,8 @@ export async function POST(req: NextRequest): Promise<Response> {
       lead_ids: visibleIds,
       count: updatedCount,
       updated_count: updatedCount,
-      ...(input.action === "assign" ? { owner_user_id: input.params.owner_user_id } : {}),
-      params: "params" in input ? input.params : {},
+      ...(ownerDoLote !== undefined ? { owner_user_id: ownerDoLote } : {}),
+      params: "params" in input ? (input.params ?? {}) : {},
     },
   });
 

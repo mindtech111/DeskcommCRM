@@ -406,6 +406,40 @@ describe("gatilhos de encerramento, reabertura e troca de responsável (#1528)",
     expect(comOptIn!.data.owner).toEqual({ kind: "user", id: BETO, name: "Beto Lima" });
   });
 
+  it("troca de responsável EM LOTE (0689): o webhook continua disparando por negócio, sem o lote_id interno", async () => {
+    // O lote não cala o fato: cada negócio reatribuído segue emitindo o seu
+    // `lead.assigned` (é gatilho que o cliente configurou). O carimbo `lote_id`
+    // existe só para o push mandar um aviso único — não sai para fora.
+    const { banco, tabelas } = cenario();
+    const LOTE = "77777777-7777-4777-8777-777777777777";
+    tabelas.crm_leads![0] = leadRow({ owner_user_id: BETO });
+
+    await runAutomationForEvent(
+      banco,
+      evento(
+        "lead.assigned",
+        {
+          lead_id: LEAD_ID,
+          from_user_id: ANA,
+          to_user_id: BETO,
+          from_agent_id: null,
+          to_agent_id: null,
+          owner_kind: "user",
+          lote_id: LOTE,
+        },
+        "evt-atribuicao-em-lote",
+      ),
+    );
+
+    expect(corpos).toHaveLength(2);
+    for (const corpo of corpos) {
+      const cru = JSON.stringify(corpo.data);
+      expect(cru).not.toContain(LOTE);
+      expect(cru).not.toContain("lote_id");
+      expect(corpo.data.lead_id).toBe(LEAD_ID);
+    }
+  });
+
   it("o mesmo evento reprocessado entrega o MESMO id (o receptor deduplica)", async () => {
     const { banco } = cenario();
     const linha = evento("lead.won", { lead_id: LEAD_ID, value_cents: 50_000 }, "evt-reprocessado");

@@ -301,6 +301,9 @@ export const AUDIT_ACTIONS = [
   "authz.denied",
   "team.role_changed",
   "leads.bulk_assigned",
+  // Tirar o dono em lote é ação própria, auditada à parte do assign: "quem
+  // deixou estes negócios sem responsável?" é pergunta que a auditoria responde.
+  "leads.bulk_unassigned",
   "attendant.availability_changed",
   "routing.config_changed",
   "proposals.config_changed",

@@ -257,6 +257,10 @@ const IDENTIDADES_DE_ATRIBUICAO = new Set([
   "to_user_id",
   "from_agent_id",
   "to_agent_id",
+  // Não é identidade de pessoa, mas é id interno da mesma família: o carimbo
+  // que liga o `lead.assigned` ao lote que o produziu (migration 0689) existe
+  // para o push mandar um aviso só. Não é contrato público — sai daqui.
+  "lote_id",
 ]);
 
 /** O payload do evento, sem as identidades internas da troca de responsável. */
