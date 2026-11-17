@@ -300,21 +300,27 @@ export function KanbanCard({
               negócio não tem nada disso, como a conversa acima. */}
           <ContatoNoCard lead={lead} />
 
-          {/* ④ dono (+ selo de tarefas) · ⑤ tempo no estágio */}
-          <div className="mt-1 flex h-6 items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-2">
+          {/* ④ dono (+ selo de tarefas) · ⑤ tempo na etapa.
+              O nome da etapa não divide esta linha: na coluna ele já está no
+              cabeçalho, e um nome longo desenhava por cima de "em <etapa>". */}
+          <div
+            className="mt-1 flex h-6 min-w-0 items-center gap-2"
+            data-testid="rodape-do-card"
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               <OwnerBadge
                 ownerKind={card.owner.kind}
                 ownerName={card.owner.name}
                 agentVersion={card.owner.agentVersion}
+                abreviarNome
               />
               <TarefasNoCard tarefas={lead.tarefas} />
             </div>
-            <span className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-text-muted">
-              {state.showStageAge && age
-                ? `${age} ${t("em")} ${card.stageName}`
-                : `${t("em")} ${card.stageName}`}
-            </span>
+            {state.showStageAge && age ? (
+              <span className="shrink-0 text-[11px] whitespace-nowrap text-text-muted tabular-nums">
+                {age}
+              </span>
+            ) : null}
           </div>
         </div>
       )}
