@@ -7,6 +7,7 @@
  *  - loseLeadSchema   → POST /api/v1/leads/[id]/lose (P-02, P-03)
  *  - bulkLeadActionSchema → POST /api/v1/leads/bulk  (AT-06, max 50)
  */
+import { LEADS_POR_ATRIBUICAO } from "@/lib/kanban/selecao";
 import { z } from "zod";
 
 /**
@@ -262,10 +263,27 @@ export const bulkLeadActionSchema = z.discriminatedUnion("action", [
       lost_reason: z.string().max(500).optional(),
     }),
   }),
+  // `assign` SEMPRE leva um dono. Até 09/11/2026 `owner_user_id: null` era
+  // aceito aqui e significava "desatribuir": o mesmo menu que atribuía tinha um
+  // item que, num clique, deixava o lote inteiro sem responsável, e foi o que
+  // aconteceu em produção (50 negócios desatribuídos quando a intenção era
+  // reatribuir). Tirar o dono é outra ação, com outro nome — `unassign` —,
+  // para que nenhum valor ausente ou nulo vire efeito destrutivo por acaso.
+  //
+  // Teto de 1000 (e não 50) para os dois: a troca de dono é UMA escrita só no
+  // banco (`fn_atribuir_leads_em_lote`, migration 0689), tudo ou nada. Em lotes
+  // de 50 uma chamada que falhava no meio deixava parte do funil reatribuída e
+  // parte não. 1000 é o `max_rows` do PostgREST — o maior quadro que a tela
+  // consegue carregar e selecionar.
   z.object({
     action: z.literal("assign"),
-    lead_ids: z.array(z.string().uuid()).min(1).max(50),
-    params: z.object({ owner_user_id: z.string().uuid().nullable() }),
+    lead_ids: z.array(z.string().uuid()).min(1).max(LEADS_POR_ATRIBUICAO),
+    params: z.object({ owner_user_id: z.string().uuid() }),
+  }),
+  z.object({
+    action: z.literal("unassign"),
+    lead_ids: z.array(z.string().uuid()).min(1).max(LEADS_POR_ATRIBUICAO),
+    params: z.object({}).optional(),
   }),
   z.object({
     action: z.literal("tag"),
