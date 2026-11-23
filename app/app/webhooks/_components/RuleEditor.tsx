@@ -31,9 +31,12 @@ import {
   DIRECOES_DO_SILENCIO,
   GATILHO_ETAPA_PARADA,
   GATILHO_SILENCIO,
+  HORAS_MAX,
   configDaEtapaParada,
   configDoSilencio,
+  recorteDoSilencio,
   type DirecaoDoSilencio,
+  type UnidadeDoSilencio,
 } from "@/lib/automation/gatilhos-de-tempo";
 import { configAoSalvarDaTela } from "@/lib/automation/config-ao-salvar";
 import { camposDoFunil } from "@/lib/leads/campos-do-funil";
@@ -53,7 +56,7 @@ interface Props {
   rule: AutomationRuleRow | null;
 }
 
-export type Op = "eq" | "neq" | "contains";
+export type Op = "eq" | "neq" | "contains" | "not_contains";
 
 interface ConditionRow {
   field: string;
@@ -181,7 +184,19 @@ export const CURATED_FIELDS: Record<TriggerEvent, CuratedField[]> = {
   "lead.stage_stale": [...LEAD_FIELDS, STAGE_FIELD],
 };
 
-export const OP_LABELS: Record<Op, string> = { eq: "é", neq: "não é", contains: "contém" };
+export const OP_LABELS: Record<Op, string> = {
+  eq: "é",
+  neq: "não é",
+  contains: "contém",
+  not_contains: "não contém",
+};
+
+/** Em lista, `contains` é "tem a tag" e `not_contains` é "não tem a tag". */
+export function rotuloDoOperador(op: Op, lista: boolean | undefined): string {
+  if (lista && op === "contains") return "tem a tag";
+  if (lista && op === "not_contains") return "não tem a tag";
+  return OP_LABELS[op];
+}
 
 function emptyCondition(): ConditionRow {
   return { field: "", op: "eq", value: "" };
@@ -220,6 +235,7 @@ const QUALQUER_ETAPA = "__qualquer_etapa__";
  */
 interface ConfigDoTempo {
   dias: string;
+  unidade: UnidadeDoSilencio;
   direcao: DirecaoDoSilencio;
   proteger_pela_agenda: boolean;
   /**
@@ -248,6 +264,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
   });
   const [configDoTempo, setConfigDoTempo] = React.useState<ConfigDoTempo>({
     dias: DIAS_PADRAO,
+    unidade: "dias",
     direcao: "da_equipe",
     proteger_pela_agenda: false,
     pipeline_id: "",
@@ -299,7 +316,12 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
     const etapaGuardada = configDaEtapaParada(rule?.trigger_config);
     const tempoGuardado = silencioGuardado ?? etapaGuardada;
     setConfigDoTempo({
-      dias: tempoGuardado ? String(tempoGuardado.dias) : DIAS_PADRAO,
+      dias: silencioGuardado
+        ? String(silencioGuardado.unidade === "horas" ? silencioGuardado.horas : silencioGuardado.dias)
+        : tempoGuardado
+          ? String(tempoGuardado.dias)
+          : DIAS_PADRAO,
+      unidade: silencioGuardado?.unidade ?? "dias",
       direcao: silencioGuardado ? silencioGuardado.direcao : "da_equipe",
       proteger_pela_agenda: tempoGuardado ? tempoGuardado.proteger_pela_agenda : false,
       // A tela agora MOSTRA o recorte gravado (#2483): `""` quando não há, que
@@ -379,25 +401,38 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
             },
           })
         : ehGatilhoDeTempo
-          ? configAoSalvarDaTela({
-              gatilhoDaRegra: rule?.trigger_event,
-              configDaRegra: rule?.trigger_config,
-              gatilhoDaTela: triggerEvent,
-              configDaTela: {
-                // O mesmo cuidado do gatilho de data: campo vazio vira NaN e o
-                // schema recusa com a mensagem certa, em vez de gravar N=0.
-                dias: configDoTempo.dias.trim() === "" ? Number.NaN : Number(configDoTempo.dias),
-                ...(triggerEvent === GATILHO_SILENCIO ? { direcao: configDoTempo.direcao } : {}),
-                proteger_pela_agenda: configDoTempo.proteger_pela_agenda,
-                // O recorte da varredura (#2483): a tela DESENHA e GRAVA o funil
-                // (nos dois gatilhos de tempo) e a etapa (só no de etapa
-                // parada). "" = todos/qualquer, que a API guarda como `null`.
-                pipeline_id: configDoTempo.pipeline_id || null,
-                ...(triggerEvent === GATILHO_ETAPA_PARADA
-                  ? { stage_id: configDoTempo.stage_id || null }
-                  : {}),
-              },
-            })
+          ? recorteDoSilencio(
+              configAoSalvarDaTela({
+                gatilhoDaRegra: rule?.trigger_event,
+                configDaRegra: rule?.trigger_config,
+                gatilhoDaTela: triggerEvent,
+                configDaTela: {
+                  // O mesmo cuidado do gatilho de data: campo vazio vira NaN e o
+                  // schema recusa com a mensagem certa, em vez de gravar N=0.
+                  dias: configDoTempo.dias.trim() === "" ? Number.NaN : Number(configDoTempo.dias),
+                  ...(triggerEvent === GATILHO_SILENCIO
+                    ? {
+                        direcao: configDoTempo.direcao,
+                        ...(configDoTempo.unidade === "horas"
+                          ? {
+                              horas: configDoTempo.dias.trim() === "" ? Number.NaN : Number(configDoTempo.dias),
+                              unidade: "horas",
+                            }
+                          : {}),
+                      }
+                    : {}),
+                  proteger_pela_agenda: configDoTempo.proteger_pela_agenda,
+                  // O recorte da varredura (#2483): a tela DESENHA e GRAVA o funil
+                  // (nos dois gatilhos de tempo) e a etapa (só no de etapa
+                  // parada). "" = todos/qualquer, que a API guarda como `null`.
+                  pipeline_id: configDoTempo.pipeline_id || null,
+                  ...(triggerEvent === GATILHO_ETAPA_PARADA
+                    ? { stage_id: configDoTempo.stage_id || null }
+                    : {}),
+                },
+              }),
+              triggerEvent === GATILHO_SILENCIO ? configDoTempo.unidade : "dias",
+            )
           : ehGatilhoDeNovoContato
             ? configAoSalvarDaTela({
                 gatilhoDaRegra: rule?.trigger_event,
@@ -588,7 +623,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                 <p className="text-sm text-muted-foreground">
                   {triggerEvent === GATILHO_SILENCIO
                     ? t(
-                        "O lembrete sai quando se passarem N dias sem mensagem na direção escolhida. Chegando mensagem nova, o relógio zera — e um novo silêncio de N dias gera outro lembrete. Nada é enviado ao cliente.",
+                        "O lembrete sai quando se passar o tempo escolhido (horas ou dias) sem mensagem na direção escolhida. Chegando mensagem nova, o relógio zera. Nada é enviado ao cliente.",
                       )
                     : t(
                         "O lembrete sai quando se passarem N dias com o card na mesma etapa. Mudando a etapa, o relógio zera. Nada é enviado ao cliente.",
@@ -596,19 +631,40 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                 </p>
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="w-40 space-y-1">
-                    <Label htmlFor="dias-do-tempo">{t("Depois de N dias")}</Label>
+                    <Label htmlFor="dias-do-tempo">
+                      {t(triggerEvent === GATILHO_SILENCIO ? "Depois de" : "Depois de N dias")}
+                    </Label>
                     <Input
                       id="dias-do-tempo"
                       type="number"
                       inputMode="numeric"
                       value={configDoTempo.dias}
                       min={1}
-                      max={3650}
+                      max={triggerEvent === GATILHO_SILENCIO && configDoTempo.unidade === "horas" ? HORAS_MAX : 3650}
                       onChange={(e) =>
                         setConfigDoTempo((prev) => ({ ...prev, dias: e.target.value }))
                       }
                     />
                   </div>
+                  {triggerEvent === GATILHO_SILENCIO ? (
+                    <div className="w-32 space-y-1">
+                      <Label>{t("Unidade")}</Label>
+                      <Select
+                        value={configDoTempo.unidade}
+                        onValueChange={(v) =>
+                          setConfigDoTempo((prev) => ({ ...prev, unidade: v as UnidadeDoSilencio }))
+                        }
+                      >
+                        <SelectTrigger aria-label={t("Unidade")}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="horas">{t("Horas")}</SelectItem>
+                          <SelectItem value="dias">{t("Dias")}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
 
                   {triggerEvent === GATILHO_SILENCIO ? (
                     <div className="flex-1 basis-52 space-y-1">
@@ -776,7 +832,7 @@ export function RuleEditor({ open, onOpenChange, rule }: Props) {
                                 rótulo diz o que o motor faz. No modo avançado
                                 (path digitado à mão) não há campo curado, então
                                 o rótulo genérico continua. */}
-                            {t(curated?.lista && op === "contains" ? "tem a tag" : OP_LABELS[op])}
+                            {t(rotuloDoOperador(op, curated?.lista))}
                           </SelectItem>
                         ))}
                       </SelectContent>

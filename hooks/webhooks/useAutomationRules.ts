@@ -2,17 +2,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
-import type {
-  CreateAutomationRuleInput,
-  UpdateAutomationRuleInput,
-} from "@/lib/schemas/webhooks";
+import type { CreateAutomationRuleInput, UpdateAutomationRuleInput } from "@/lib/schemas/webhooks";
 
 export interface AutomationRuleRow {
   id: string;
   organization_id: string;
   name: string;
   trigger_event: string;
-  conditions: Array<{ field: string; op: "eq" | "neq" | "contains"; value: string }>;
+  conditions: Array<{
+    field: string;
+    op: "eq" | "neq" | "contains" | "not_contains";
+    value: string;
+  }>;
   actions: Array<{ type: string; config: Record<string, unknown> }>;
   /**
    * O que o gatilho precisa saber além do nome (#989, migration 0268). Só o

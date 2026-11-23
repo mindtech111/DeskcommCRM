@@ -210,6 +210,30 @@ const MOTIVO_DA_PARADA: Record<string, string> = {
     "O servidor recusou o endereço de quem envia. Confira o remetente em Admin › E-mail.",
   dominio_nao_verificado:
     "O domínio do remetente não está verificado na Resend. Verifique o domínio na conta Resend e tente de novo.",
+  /* Aviso interno no WhatsApp. Os códigos nascem em send-internal-whatsapp.ts
+     (`detail.reason`, inclusive o `reason` dinâmico declarado em ORIGENS) e o
+     teto/espaçamento vêm do pacing. */
+  variavel_nao_permitida:
+    "O texto do aviso usa uma marcação que não é permitida. Só entram primeiro nome, origem, assunto e o link do card.",
+  aviso_remetente_arquivado: "O número que enviaria o aviso está arquivado. Escolha outro número na automação.",
+  canal_desativado: "O número que enviaria o aviso está desativado. Escolha outro número na automação.",
+  canal_nao_aceita_aviso_livre:
+    "Este número não envia aviso interno. O recado para a equipe sai por uma sessão que manda mensagem livre.",
+  canal_desconectado:
+    "O número que enviaria o aviso não está conectado. O aviso tenta de novo por até seis horas e, se não sair, a falha fica na auditoria.",
+  sem_endereco_publico:
+    "O texto pede o link do card, mas esta instalação não tem um endereço público utilizável. Configure o endereço ou tire o link do texto.",
+  transporte_ausente:
+    "O envio por este número não está configurado agora. O aviso tenta de novo por até seis horas e, se não sair, a falha fica na auditoria.",
+  destino_invalido:
+    "O número da equipe que receberia o aviso não é um telefone válido. Abra a automação e corrija.",
+  agendado:
+    "O aviso entrou na fila dele e tenta sair sozinho por até seis horas, sem segurar as outras ações. Se não sair nesse prazo, a falha fica registrada na auditoria.",
+  teto_diario:
+    "O aviso não saiu: o número já atingiu o teto de mensagens do dia e o próximo horário passa de seis horas. Ficou registrado e não será enviado.",
+  espacamento: "O aviso esperou o intervalo mínimo entre mensagens deste número e tenta de novo dentro do prazo.",
+  falha_no_envio:
+    "O envio do aviso falhou. Ele tenta de novo por até seis horas e, se não sair, a falha fica registrada na auditoria.",
 };
 
 function explicacaoDe(

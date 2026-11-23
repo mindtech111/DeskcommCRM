@@ -7,7 +7,8 @@ const ctx = {
 };
 
 describe("resolveField", () => {
-  it("path aninhado", () => expect(resolveField(ctx, "lead.custom_fields.utm_source")).toBe("instagram"));
+  it("path aninhado", () =>
+    expect(resolveField(ctx, "lead.custom_fields.utm_source")).toBe("instagram"));
   it("path ausente → undefined", () => expect(resolveField(ctx, "lead.nope.x")).toBeUndefined());
 });
 
@@ -15,15 +16,28 @@ describe("evaluateConditions", () => {
   it("lista vazia → true (regra sem condição dispara sempre)", () =>
     expect(evaluateConditions([], ctx)).toBe(true));
   it("eq string", () =>
-    expect(evaluateConditions([{ field: "event.to_stage_id", op: "eq", value: "s2" }], ctx)).toBe(true));
+    expect(evaluateConditions([{ field: "event.to_stage_id", op: "eq", value: "s2" }], ctx)).toBe(
+      true,
+    ));
   it("eq com coerção numérica (valor sempre chega como string da UI)", () =>
-    expect(evaluateConditions([{ field: "lead.value_cents", op: "eq", value: "5000" }], ctx)).toBe(true));
+    expect(evaluateConditions([{ field: "lead.value_cents", op: "eq", value: "5000" }], ctx)).toBe(
+      true,
+    ));
   it("neq", () =>
-    expect(evaluateConditions([{ field: "event.to_stage_id", op: "neq", value: "s1" }], ctx)).toBe(true));
+    expect(evaluateConditions([{ field: "event.to_stage_id", op: "neq", value: "s1" }], ctx)).toBe(
+      true,
+    ));
   it("contains em array", () =>
-    expect(evaluateConditions([{ field: "event.added_tags", op: "contains", value: "vip" }], ctx)).toBe(true));
+    expect(
+      evaluateConditions([{ field: "event.added_tags", op: "contains", value: "vip" }], ctx),
+    ).toBe(true));
   it("contains em string (case-insensitive)", () =>
-    expect(evaluateConditions([{ field: "lead.custom_fields.utm_source", op: "contains", value: "INSTA" }], ctx)).toBe(true));
+    expect(
+      evaluateConditions(
+        [{ field: "lead.custom_fields.utm_source", op: "contains", value: "INSTA" }],
+        ctx,
+      ),
+    ).toBe(true));
 
   /**
    * #956: em lista, `contains` exigia a tag IDÊNTICA, com caixa. Quem escreve a
@@ -34,7 +48,10 @@ describe("evaluateConditions", () => {
   const comTags = (tags: string[]) => ({ event: { added_tags: tags } });
   it("contém em lista: casa a tag de caixa diferente", () =>
     expect(
-      evaluateConditions([{ field: "event.added_tags", op: "contains", value: "Google" }], comTags(["google"])),
+      evaluateConditions(
+        [{ field: "event.added_tags", op: "contains", value: "Google" }],
+        comTags(["google"]),
+      ),
     ).toBe(true));
   // Os dois casos abaixo eram POSITIVOS na primeira versão do #957 ("pedaço da
   // tag"). O dono escolheu pertinência: a regra que o operador escreveu para
@@ -43,15 +60,24 @@ describe("evaluateConditions", () => {
   // satisfeito pelas duas.
   it("contém em lista: NÃO casa pedaço de tag", () =>
     expect(
-      evaluateConditions([{ field: "event.added_tags", op: "contains", value: "Google" }], comTags(["Google Ads"])),
+      evaluateConditions(
+        [{ field: "event.added_tags", op: "contains", value: "Google" }],
+        comTags(["Google Ads"]),
+      ),
     ).toBe(false));
   it("contém em lista: NÃO casa o texto no meio da tag", () =>
     expect(
-      evaluateConditions([{ field: "event.added_tags", op: "contains", value: "google" }], comTags(["tráfego google"])),
+      evaluateConditions(
+        [{ field: "event.added_tags", op: "contains", value: "google" }],
+        comTags(["tráfego google"]),
+      ),
     ).toBe(false));
   it("contém em lista: NÃO casa prefixo de outra tag", () =>
     expect(
-      evaluateConditions([{ field: "event.added_tags", op: "contains", value: "vip" }], comTags(["vip ouro"])),
+      evaluateConditions(
+        [{ field: "event.added_tags", op: "contains", value: "vip" }],
+        comTags(["vip ouro"]),
+      ),
     ).toBe(false));
   it("contém em TEXTO continua sendo contém", () =>
     expect(
@@ -62,7 +88,10 @@ describe("evaluateConditions", () => {
     ).toBe(true));
   it("contém em lista: NÃO casa tag sem relação", () =>
     expect(
-      evaluateConditions([{ field: "event.added_tags", op: "contains", value: "Google" }], comTags(["indicação", "vip"])),
+      evaluateConditions(
+        [{ field: "event.added_tags", op: "contains", value: "Google" }],
+        comTags(["indicação", "vip"]),
+      ),
     ).toBe(false));
   it("E entre múltiplas: uma falsa derruba", () =>
     expect(
@@ -78,6 +107,33 @@ describe("evaluateConditions", () => {
     expect(evaluateConditions([{ field: "lead.ghost", op: "eq", value: "x" }], ctx)).toBe(false));
   it("campo ausente com neq → true (ausente ≠ valor)", () =>
     expect(evaluateConditions([{ field: "lead.ghost", op: "neq", value: "x" }], ctx)).toBe(true));
+
+  it("não tem a tag: a lista sem ela passa, a lista com ela não", () => {
+    const com = (tags: string[]) => ({ lead: { tags } });
+    expect(
+      evaluateConditions(
+        [{ field: "lead.tags", op: "not_contains", value: "origem:site" }],
+        com(["origem:score"]),
+      ),
+    ).toBe(true);
+    expect(
+      evaluateConditions(
+        [{ field: "lead.tags", op: "not_contains", value: "Origem:Site" }],
+        com(["origem:site"]),
+      ),
+    ).toBe(false);
+    expect(
+      evaluateConditions(
+        [{ field: "lead.tags", op: "not_contains", value: "origem:site" }],
+        com(["origem:site-antigo"]),
+      ),
+    ).toBe(true);
+  });
+
+  it("não tem a tag: campo ausente conta como não ter", () =>
+    expect(
+      evaluateConditions([{ field: "lead.tags", op: "not_contains", value: "origem:site" }], {}),
+    ).toBe(true));
 
   /**
    * #2973: a comparação sem caixa já existia; sem ACENTO e sem PONTUAÇÃO não.
@@ -156,11 +212,17 @@ describe("evaluateConditions", () => {
 
   it("contém em lista: a mesma grafia dobra, a pertinência (tag inteira) NÃO", () => {
     expect(
-      evaluateConditions([{ field: "event.added_tags", op: "contains", value: "tráfego" }], comTags(["trafego"])),
+      evaluateConditions(
+        [{ field: "event.added_tags", op: "contains", value: "tráfego" }],
+        comTags(["trafego"]),
+      ),
     ).toBe(true);
     // #956 continua de pé: tag inteira, nunca o pedaço — nem depois de dobrar a grafia.
     expect(
-      evaluateConditions([{ field: "event.added_tags", op: "contains", value: "trafego" }], comTags(["trafego pago"])),
+      evaluateConditions(
+        [{ field: "event.added_tags", op: "contains", value: "trafego" }],
+        comTags(["trafego pago"]),
+      ),
     ).toBe(false);
   });
 
@@ -206,13 +268,22 @@ describe("evaluateConditions", () => {
     // "?" normalizado fica vazio, e "contém vazio" casaria tudo: uma regra que
     // manda WhatsApp passaria a disparar para todo mundo. Ela compara como antes.
     expect(
-      evaluateConditions([{ field: "event.body_preview", op: "contains", value: "?" }], comTexto("bom dia")),
+      evaluateConditions(
+        [{ field: "event.body_preview", op: "contains", value: "?" }],
+        comTexto("bom dia"),
+      ),
     ).toBe(false);
     expect(
-      evaluateConditions([{ field: "event.body_preview", op: "contains", value: "?" }], comTexto("tudo bem?")),
+      evaluateConditions(
+        [{ field: "event.body_preview", op: "contains", value: "?" }],
+        comTexto("tudo bem?"),
+      ),
     ).toBe(true);
     expect(
-      evaluateConditions([{ field: "event.added_tags", op: "contains", value: "!" }], comTags(["vip"])),
+      evaluateConditions(
+        [{ field: "event.added_tags", op: "contains", value: "!" }],
+        comTags(["vip"]),
+      ),
     ).toBe(false);
   });
 });

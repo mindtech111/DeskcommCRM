@@ -14,7 +14,9 @@ import {
   DIRECOES_DO_SILENCIO,
   GATILHO_ETAPA_PARADA,
   GATILHO_SILENCIO,
+  HORAS_MAX,
   type DirecaoDoSilencio,
+  type UnidadeDoSilencio,
 } from "@/lib/automation/gatilhos-de-tempo";
 import {
   MAXIMO_DE_CONDICOES,
@@ -28,7 +30,7 @@ import {
 } from "@/lib/automation/desenho-da-regra";
 import { camposDoFunil } from "@/lib/leads/campos-do-funil";
 import { ActionConfigForm, type ActionItem } from "@/app/app/webhooks/_components/ActionConfigForm";
-import { CURATED_FIELDS, OP_LABELS, type Op } from "@/app/app/webhooks/_components/RuleEditor";
+import { CURATED_FIELDS, OP_LABELS, rotuloDoOperador, type Op } from "@/app/app/webhooks/_components/RuleEditor";
 import { ACTION_LABELS, TRIGGER_LABELS, type ActionType, type TriggerEvent } from "@/app/app/webhooks/_components/labels";
 
 import { VISUAL_DAS_CONDICOES, VISUAL_DO_GATILHO, visualDaAcao, type VisualDaCaixa } from "./visual";
@@ -212,23 +214,46 @@ export function PainelDoGatilho({
           <p className="text-sm text-text-muted">
             {evento === GATILHO_SILENCIO
               ? t(
-                  "O lembrete sai quando se passarem N dias sem mensagem na direção escolhida. Chegando mensagem nova, o relógio zera — e um novo silêncio de N dias gera outro lembrete. Nada é enviado ao cliente.",
+                  "O lembrete sai quando se passar o tempo escolhido (horas ou dias) sem mensagem na direção escolhida. Chegando mensagem nova, o relógio zera. Nada é enviado ao cliente.",
                 )
               : t(
                   "O lembrete sai quando se passarem N dias com o card na mesma etapa. Mudando a etapa, o relógio zera. Nada é enviado ao cliente.",
                 )}
           </p>
-          <div className="w-40 space-y-1">
-            <Label htmlFor="designer-dias-do-tempo">{t("Depois de N dias")}</Label>
-            <Input
-              id="designer-dias-do-tempo"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={3650}
-              value={tela.tempo.dias}
-              onChange={(e) => onTela({ ...tela, tempo: { ...tela.tempo, dias: e.target.value } })}
-            />
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-40 space-y-1">
+              <Label htmlFor="designer-dias-do-tempo">
+                {t(evento === GATILHO_SILENCIO ? "Depois de" : "Depois de N dias")}
+              </Label>
+              <Input
+                id="designer-dias-do-tempo"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={evento === GATILHO_SILENCIO && tela.tempo.unidade === "horas" ? HORAS_MAX : 3650}
+                value={tela.tempo.dias}
+                onChange={(e) => onTela({ ...tela, tempo: { ...tela.tempo, dias: e.target.value } })}
+              />
+            </div>
+            {evento === GATILHO_SILENCIO ? (
+              <div className="w-32 space-y-1">
+                <Label>{t("Unidade")}</Label>
+                <Select
+                  value={tela.tempo.unidade ?? "dias"}
+                  onValueChange={(v) =>
+                    onTela({ ...tela, tempo: { ...tela.tempo, unidade: v as UnidadeDoSilencio } })
+                  }
+                >
+                  <SelectTrigger aria-label={t("Unidade")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="horas">{t("Horas")}</SelectItem>
+                    <SelectItem value="dias">{t("Dias")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
           </div>
           {evento === GATILHO_SILENCIO ? (
             <div className="space-y-1">
@@ -358,7 +383,7 @@ export function PainelDasCondicoes({
                 <SelectContent>
                   {(Object.keys(OP_LABELS) as Op[]).map((op) => (
                     <SelectItem key={op} value={op}>
-                      {t(curado?.lista && op === "contains" ? "tem a tag" : OP_LABELS[op])}
+                      {t(rotuloDoOperador(op, curado?.lista))}
                     </SelectItem>
                   ))}
                 </SelectContent>

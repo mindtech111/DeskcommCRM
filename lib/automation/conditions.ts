@@ -1,9 +1,10 @@
 /**
- * Condições do motor de regras: filtros simples (eq/neq/contains) em AND.
- * Campo ausente = condição falsa (nunca erro). Coerção via String() dos dois
- * lados — o value vem sempre como string da UI.
+ * Condições do motor de regras: filtros simples (eq/neq/contains/not_contains) em AND.
+ * Campo ausente = condição falsa (nunca erro), exceto `neq` e `not_contains`:
+ * o que não está lá não é o valor, e também não tem a tag. Coerção via String()
+ * dos dois lados — o value vem sempre como string da UI.
  */
-export type ConditionOp = "eq" | "neq" | "contains";
+export type ConditionOp = "eq" | "neq" | "contains" | "not_contains";
 
 export interface RuleCondition {
   field: string;
@@ -65,8 +66,8 @@ export function resolveField(context: Record<string, unknown>, path: string): un
 
 function matches(cond: RuleCondition, context: Record<string, unknown>): boolean {
   const raw = resolveField(context, cond.field);
-  if (raw === undefined || raw === null) return cond.op === "neq";
-  if (cond.op === "contains") {
+  if (raw === undefined || raw === null) return cond.op === "neq" || cond.op === "not_contains";
+  if (cond.op === "contains" || cond.op === "not_contains") {
     // Um operador, um significado (#956). Em lista ele exigia a tag IDÊNTICA,
     // com caixa, enquanto em texto já era "contém" sem caixa — e a tela chama os
     // dois de "contém". Quem escreve a regra digita "Google" e a tag guardada é
@@ -86,8 +87,10 @@ function matches(cond: RuleCondition, context: Record<string, unknown>): boolean
     // ("tráfego" acha `trafego`), nunca o pedaço dela. Em TEXTO segue
     // sendo "contém" de verdade — é o que o campo `event.event_type_name`
     // usa para "Manutenção" pegar os três tipos de atendimento.
-    if (Array.isArray(raw)) return raw.some((item) => forma(item) === alvo);
-    return forma(raw).includes(alvo);
+    const achou = Array.isArray(raw)
+      ? raw.some((item) => forma(item) === alvo)
+      : forma(raw).includes(alvo);
+    return cond.op === "contains" ? achou : !achou;
   }
   const equal = String(raw) === cond.value;
   return cond.op === "eq" ? equal : !equal;

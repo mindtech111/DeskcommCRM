@@ -14,6 +14,7 @@ import { updateAutomationRuleSchema } from "@/lib/schemas";
 import { acoesQueFechamLaco, MENSAGEM_DO_LACO_DE_LEAD } from "@/lib/schemas/webhooks";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { remetenteDeAvisoRecusado } from "@/lib/automation/remetente-do-aviso";
 import { encryptRuleActionSecrets } from "@/lib/webhooks/secrets";
 import { traduzir } from "@/lib/i18n/dicionario";
 
@@ -49,6 +50,17 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
   }
 
   const supabase = await createClient();
+  if (
+    parsed.data.actions &&
+    (await remetenteDeAvisoRecusado(supabase, activeOrg.orgId, parsed.data.actions))
+  ) {
+    return fail(
+      "invalid_request",
+      t("Este número não envia aviso interno. O recado para a equipe sai por uma sessão que manda mensagem livre."),
+      422,
+      { requestId },
+    );
+  }
   const { data: existing, error: fetchErr } = await supabase
     .from("automation_rules")
     .select("id, trigger_event, trigger_config, actions")

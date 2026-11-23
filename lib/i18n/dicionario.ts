@@ -8669,6 +8669,7 @@ export const DICIONARIO: Traducoes = {
   "Mudou de estágio": { es: "Cambió de etapa" },
   "Correção do que o assistente tinha feito": { es: "Corrección de lo que había hecho el asistente" },
   "Anotação": { es: "Anotación" },
+  "Clicou para falar no WhatsApp": { es: "Hizo clic para hablar por WhatsApp" },
   "Atendimento da IA": { es: "Atención de la IA" },
   "Envio bloqueado": { es: "Envío bloqueado" },
   "Passou para humano": { es: "Pasó a una persona" },
@@ -15207,10 +15208,63 @@ export const DICIONARIO: Traducoes = {
   "O lembrete sai quando se passarem N dias sem mensagem na direção escolhida. Chegando mensagem nova, o relógio zera — e um novo silêncio de N dias gera outro lembrete. Nada é enviado ao cliente.": { es: "El recordatorio sale cuando pasan N días sin mensaje en la dirección elegida. Llegando un mensaje nuevo, el reloj se reinicia — y un nuevo silencio de N días genera otro recordatorio. No se envía nada al cliente." },
   "O lembrete sai quando se passarem N dias com o card na mesma etapa. Mudando a etapa, o relógio zera. Nada é enviado ao cliente.": { es: "El recordatorio sale cuando la tarjeta lleva N días en la misma etapa. Cambiando de etapa, el reloj se reinicia. No se envía nada al cliente." },
   "Depois de N dias": { es: "Después de N días" },
+  "Depois de": { es: "Después de" },
   "Silêncio de": { es: "Silencio de" },
   "De quem é o silêncio": { es: "De quién es el silencio" },
   "Não gerar lembrete quando o cliente tiver compromisso marcado": { es: "No generar recordatorio cuando el cliente tenga un compromiso marcado" },
   "Quando ficar N dias sem mensagem": { es: "Cuando pasen N días sin mensaje" },
+  "Quando ficar um tempo sem mensagem": { es: "Cuando pase un tiempo sin mensaje" },
+  "Horas": { es: "Horas" },
+  "não contém": { es: "no contiene" },
+  "não tem a tag": { es: "no tiene la etiqueta" },
+  "Aviso interno no WhatsApp (para a equipe)": { es: "Aviso interno por WhatsApp (para el equipo)" },
+  "WhatsApp da equipe": { es: "WhatsApp del equipo" },
+  "não envia aviso interno": { es: "no envía aviso interno" },
+  "Este número não envia aviso interno. O recado para a equipe sai por uma sessão que manda mensagem livre.": {
+    es: "Este número no envía aviso interno. El recado para el equipo sale por una sesión que manda mensaje libre.",
+  },
+  "O texto do aviso usa uma marcação que não é permitida. Só entram primeiro nome, origem, assunto e o link do card.": {
+    es: "El texto del aviso usa una marca que no está permitida. Solo entran el primer nombre, el origen, el asunto y el enlace de la tarjeta.",
+  },
+  "O número que enviaria o aviso está arquivado. Escolha outro número na automação.": {
+    es: "El número que enviaría el aviso está archivado. Elige otro número en la automatización.",
+  },
+  "O número que enviaria o aviso está desativado. Escolha outro número na automação.": {
+    es: "El número que enviaría el aviso está desactivado. Elige otro número en la automatización.",
+  },
+  "O número que enviaria o aviso não está conectado. O aviso tenta de novo por até seis horas e, se não sair, a falha fica na auditoria.": {
+    es: "El número que enviaría el aviso no está conectado. El aviso lo intenta de nuevo durante hasta seis horas y, si no sale, la falla queda en la auditoría.",
+  },
+  "O texto pede o link do card, mas esta instalação não tem um endereço público utilizável. Configure o endereço ou tire o link do texto.": {
+    es: "El texto pide el enlace de la tarjeta, pero esta instalación no tiene una dirección pública utilizable. Configura la dirección o quita el enlace del texto.",
+  },
+  "O envio por este número não está configurado agora. O aviso tenta de novo por até seis horas e, se não sair, a falha fica na auditoria.": {
+    es: "El envío por este número no está configurado ahora. El aviso lo intenta de nuevo durante hasta seis horas y, si no sale, la falla queda en la auditoría.",
+  },
+  "O número da equipe que receberia o aviso não é um telefone válido. Abra a automação e corrija.": {
+    es: "El número del equipo que recibiría el aviso no es un teléfono válido. Abre la automatización y corrígelo.",
+  },
+  "O aviso entrou na fila dele e tenta sair sozinho por até seis horas, sem segurar as outras ações. Se não sair nesse prazo, a falha fica registrada na auditoria.": {
+    es: "El aviso entró en su propia fila e intenta salir solo durante hasta seis horas, sin retener las otras acciones. Si no sale en ese plazo, la falla queda registrada en la auditoría.",
+  },
+  "O aviso não saiu: o número já atingiu o teto de mensagens do dia e o próximo horário passa de seis horas. Ficou registrado e não será enviado.": {
+    es: "El aviso no salió: el número ya alcanzó el tope de mensajes del día y el próximo horario pasa de seis horas. Quedó registrado y no se enviará.",
+  },
+  "O aviso esperou o intervalo mínimo entre mensagens deste número e tenta de novo dentro do prazo.": {
+    es: "El aviso esperó el intervalo mínimo entre mensajes de este número e intenta de nuevo dentro del plazo.",
+  },
+  "O envio do aviso falhou. Ele tenta de novo por até seis horas e, se não sair, a falha fica registrada na auditoria.": {
+    es: "El envío del aviso falló. Lo intenta de nuevo durante hasta seis horas y, si no sale, la falla queda registrada en la auditoría.",
+  },
+  "Número que recebe o aviso": { es: "Número que recibe el aviso" },
+  "O aviso vai para a equipe, pelo número escolhido. O texto só aceita primeiro nome, origem, assunto e o link do card. Resposta de formulário e dado de saúde não entram. O envio respeita o espaçamento e o teto diário do número.": {
+    es: "El aviso va al equipo, por el número elegido. El texto solo acepta el primer nombre, el origen, el asunto y el enlace de la tarjeta. La respuesta del formulario y el dato de salud no entran. El envío respeta el espaciado y el tope diario del número.",
+  },
+  "Primeiro nome": { es: "Primer nombre" },
+  "Link do card": { es: "Enlace de la tarjeta" },
+  "O lembrete sai quando se passar o tempo escolhido (horas ou dias) sem mensagem na direção escolhida. Chegando mensagem nova, o relógio zera. Nada é enviado ao cliente.": {
+    es: "El recordatorio sale cuando pasa el tiempo elegido (horas o días) sin mensaje en la dirección elegida. Llegando un mensaje nuevo, el reloj se reinicia. No se envía nada al cliente.",
+  },
   "Quando um lead ficar N dias na mesma etapa": { es: "Cuando un lead lleve N días en la misma etapa" },
   "Criar tarefa interna (sem mensagem ao cliente)": { es: "Crear tarea interna (sin mensaje al cliente)" },
   "A tarefa não foi criada: o evento que disparou a regra não trouxe um lead nem um contato para pendurar nela.": {

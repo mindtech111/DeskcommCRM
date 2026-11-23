@@ -19,6 +19,7 @@ import {
 import { usePipelines, usePipelineStages } from "@/hooks/webhooks/useWebhookSources";
 import { useAgentsList } from "@/hooks/ai/useAgents";
 import { channelLabel, useChannelSessions } from "@/hooks/channels/useChannelSessions";
+import { aceitaAvisoLivre } from "@/lib/channels/aviso-livre";
 import { useAssignableMembers } from "@/hooks/inbox/useAssignableMembers";
 import { useDefaultPipeline } from "@/hooks/pipelines/useDefaultPipeline";
 import { camposDoFunil } from "@/lib/leads/campos-do-funil";
@@ -76,7 +77,11 @@ export type ActionItem =
   // #1752 — a SEQUÊNCIA: o plano mora em `organizations.settings.task_plans`,
   // e o editor só escolhe QUAL deles aplicar. `plano_id` é o id do JSON (não
   // uuid) — mesmos campos do schema da API e da ação `apply_task_plan`.
-  | { type: "apply_task_plan"; config: { plano_id: string } };
+  | { type: "apply_task_plan"; config: { plano_id: string } }
+  | {
+      type: "send_internal_whatsapp";
+      config: { channel_session_id: string; telefone_destino: string; template: string };
+    };
 
 export function defaultActionConfig(type: ActionItem["type"]): ActionItem {
   switch (type) {
@@ -111,6 +116,15 @@ export function defaultActionConfig(type: ActionItem["type"]): ActionItem {
       };
     case "apply_task_plan":
       return { type, config: { plano_id: "" } };
+    case "send_internal_whatsapp":
+      return {
+        type,
+        config: {
+          channel_session_id: "",
+          telefone_destino: "",
+          template: "{{primeiro_nome}} · {{origem}}\n{{assunto}}\n{{link}}",
+        },
+      };
   }
 }
 
@@ -903,6 +917,97 @@ function ApplyTaskPlanForm({ config, onChange }: FormProps<{ plano_id: string }>
   );
 }
 
+const VARIAVEIS_DO_AVISO = [
+  { token: "{{primeiro_nome}}", label: "Primeiro nome" },
+  { token: "{{origem}}", label: "Origem" },
+  { token: "{{assunto}}", label: "Assunto" },
+  { token: "{{link}}", label: "Link do card" },
+] as const;
+
+function SendInternalWhatsappForm({
+  config,
+  onChange,
+}: FormProps<{ channel_session_id: string; telefone_destino: string; template: string }>) {
+  const t = useT();
+  const { data: sessions } = useChannelSessions();
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const insertVar = (token: string) => {
+    const el = textareaRef.current;
+    const current = config.template;
+    const start = el?.selectionStart ?? current.length;
+    const end = el?.selectionEnd ?? current.length;
+    onChange({ ...config, template: current.slice(0, start) + token + current.slice(end) });
+  };
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1">
+        <Label>{t("WhatsApp da equipe")}</Label>
+        <Select
+          value={config.channel_session_id}
+          onValueChange={(v) => onChange({ ...config, channel_session_id: v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={t("Escolha o número")} />
+          </SelectTrigger>
+          <SelectContent>
+            {(sessions ?? []).map((s) => {
+              const livre = aceitaAvisoLivre(s.provider);
+              const sufixo = !livre
+                ? ` — ${t("não envia aviso interno")}`
+                : s.status !== "WORKING"
+                  ? " — desconectado"
+                  : "";
+              return (
+                <SelectItem key={s.id} value={s.id} disabled={s.status !== "WORKING" || !livre}>
+                  {channelLabel(s) + sufixo}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+        {(sessions ?? []).some((s) => !aceitaAvisoLivre(s.provider)) ? (
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "Este número não envia aviso interno. O recado para a equipe sai por uma sessão que manda mensagem livre.",
+            )}
+          </p>
+        ) : null}
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="telefone-do-aviso">{t("Número que recebe o aviso")}</Label>
+        <Input
+          id="telefone-do-aviso"
+          value={config.telefone_destino}
+          onChange={(e) => onChange({ ...config, telefone_destino: e.target.value })}
+          placeholder="+55 11 90000-0000"
+          inputMode="tel"
+        />
+      </div>
+      <div className="space-y-1">
+        <Label>{t("Mensagem")}</Label>
+        <div className="flex flex-wrap gap-1">
+          {VARIAVEIS_DO_AVISO.map((v) => (
+            <Button key={v.token} type="button" variant="secondary" size="sm" onClick={() => insertVar(v.token)}>
+              {t(v.label)}
+            </Button>
+          ))}
+        </div>
+        <Textarea
+          ref={textareaRef}
+          rows={4}
+          value={config.template}
+          onChange={(e) => onChange({ ...config, template: e.target.value })}
+        />
+        <p className="text-xs text-muted-foreground">
+          {t(
+            "O aviso vai para a equipe, pelo número escolhido. O texto só aceita primeiro nome, origem, assunto e o link do card. Resposta de formulário e dado de saúde não entram. O envio respeita o espaçamento e o teto diário do número.",
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function ActionConfigForm({
   action,
   onChange,
@@ -977,6 +1082,13 @@ export function ActionConfigForm({
     case "apply_task_plan":
       return (
         <ApplyTaskPlanForm
+          config={action.config}
+          onChange={(config) => onChange({ type: action.type, config })}
+        />
+      );
+    case "send_internal_whatsapp":
+      return (
+        <SendInternalWhatsappForm
           config={action.config}
           onChange={(config) => onChange({ type: action.type, config })}
         />

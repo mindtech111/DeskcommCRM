@@ -121,14 +121,98 @@ describe("createAutomationRuleSchema", () => {
 });
 
 describe("conditionSchema", () => {
-  it("rejects op outside eq/neq/contains", () => {
+  it("rejects op outside eq/neq/contains/not_contains", () => {
     const r = conditionSchema.safeParse({ field: "status", op: "gt", value: "won" });
     expect(r.success).toBe(false);
+  });
+
+  it("aceita not_contains", () => {
+    const r = conditionSchema.safeParse({
+      field: "lead.tags",
+      op: "not_contains",
+      value: "origem:site",
+    });
+    expect(r.success).toBe(true);
   });
 
   it("accepts a valid condition", () => {
     const r = conditionSchema.safeParse({ field: "status", op: "eq", value: "won" });
     expect(r.success).toBe(true);
+  });
+});
+
+describe("send_internal_whatsapp e silêncio em horas", () => {
+  const sessao = "11111111-1111-4111-8111-111111111111";
+
+  it("aceita o aviso interno com as quatro marcações", () => {
+    const r = createAutomationRuleSchema.safeParse({
+      name: "Aviso",
+      trigger_event: "lead.created",
+      actions: [
+        {
+          type: "send_internal_whatsapp",
+          config: {
+            channel_session_id: sessao,
+            telefone_destino: "+55 11 92619-8917",
+            template: "{{primeiro_nome}} {{origem}} {{assunto}} {{link}}",
+          },
+        },
+      ],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("recusa marcação desconhecida, inclusive com hífen", () => {
+    const r = createAutomationRuleSchema.safeParse({
+      name: "Aviso",
+      trigger_event: "lead.created",
+      actions: [
+        {
+          type: "send_internal_whatsapp",
+          config: {
+            channel_session_id: sessao,
+            telefone_destino: "+5511926198917",
+            template: "Novo lead: {{first-name}}",
+          },
+        },
+      ],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("recusa modelo que pede campo do formulário", () => {
+    const r = createAutomationRuleSchema.safeParse({
+      name: "Aviso",
+      trigger_event: "lead.created",
+      actions: [
+        {
+          type: "send_internal_whatsapp",
+          config: {
+            channel_session_id: sessao,
+            telefone_destino: "+5511926198917",
+            template: "{{lead.custom_fields.score}}",
+          },
+        },
+      ],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("aceita lead.silent_for em horas e continua aceitando a regra antiga em dias", () => {
+    const horas = createAutomationRuleSchema.safeParse({
+      name: "Resgate",
+      trigger_event: "lead.silent_for",
+      trigger_config: { horas: 2, unidade: "horas", direcao: "do_cliente" },
+      actions: [{ type: "add_tag", config: { tags: ["x"] } }],
+    });
+    const dias = createAutomationRuleSchema.safeParse({
+      name: "Resgate",
+      trigger_event: "lead.silent_for",
+      trigger_config: { dias: 3, direcao: "da_equipe" },
+      actions: [{ type: "add_tag", config: { tags: ["x"] } }],
+    });
+    expect(horas.success).toBe(true);
+    expect(dias.success).toBe(true);
   });
 });
 
@@ -138,7 +222,6 @@ describe("updateAutomationRuleSchema", () => {
     expect(r.success).toBe(true);
   });
 });
-
 
 describe("#1612: gatilhos de desfecho e o opt-in do responsável", () => {
   it("aceita appointment.completed e appointment.no_show como trigger_event", () => {
@@ -175,7 +258,6 @@ describe("#1612: gatilhos de desfecho e o opt-in do responsável", () => {
   });
 });
 
-
 describe("form source AI authorization configuration", () => {
   it("allows renaming an existing source and trims outer whitespace", () => {
     expect(updateWebhookSourceSchema.parse({ name: "  Campanha de Sites  " })).toEqual({
@@ -185,10 +267,21 @@ describe("form source AI authorization configuration", () => {
   });
 
   it("accepts a boolean on update and rejects coercion", () => {
-    expect(updateWebhookSourceSchema.parse({ authorize_ai_on_capture: true })).toEqual({ authorize_ai_on_capture: true });
-    expect(updateWebhookSourceSchema.safeParse({ authorize_ai_on_capture: "true" }).success).toBe(false);
+    expect(updateWebhookSourceSchema.parse({ authorize_ai_on_capture: true })).toEqual({
+      authorize_ai_on_capture: true,
+    });
+    expect(updateWebhookSourceSchema.safeParse({ authorize_ai_on_capture: "true" }).success).toBe(
+      false,
+    );
   });
   it("creation keeps authorization off until explicit source configuration", () => {
-    expect(createWebhookSourceSchema.parse({ name: "Synthetic", default_pipeline_id: UUID, default_stage_id: UUID2, authorize_ai_on_capture: true })).not.toHaveProperty("authorize_ai_on_capture");
+    expect(
+      createWebhookSourceSchema.parse({
+        name: "Synthetic",
+        default_pipeline_id: UUID,
+        default_stage_id: UUID2,
+        authorize_ai_on_capture: true,
+      }),
+    ).not.toHaveProperty("authorize_ai_on_capture");
   });
 });

@@ -200,7 +200,13 @@ export type ActivityType =
    * possível (`lead_id` é NOT NULL), só auditoria (D6).
    */
   | "contact_marked_personal"
-  | "contact_unmarked_personal";
+  | "contact_unmarked_personal"
+  /**
+   * A pessoa clicou no site para abrir o WhatsApp, dentro de 48 h da captação.
+   * Tipo próprio, e não `note`: a timeline diz o que aconteceu, e o filtro que
+   * lê `type` consegue achar o clique sem vasculhar o texto da anotação.
+   */
+  | "whatsapp_link_clicked";
 
 export const ACTIVITY_LABELS: Record<ActivityType, string> = {
   lead_created: "Entrou no funil",
@@ -313,6 +319,7 @@ export const ACTIVITY_LABELS: Record<ActivityType, string> = {
   // que o contato saiu da operação (ou voltou), não o nome da coluna.
   contact_marked_personal: "Marcado como pessoal",
   contact_unmarked_personal: "Desmarcado como pessoal",
+  whatsapp_link_clicked: "Clicou para falar no WhatsApp",
 };
 
 /** Quando o tipo é legado/desconhecido, a linha ainda é honesta — sem jargão. */

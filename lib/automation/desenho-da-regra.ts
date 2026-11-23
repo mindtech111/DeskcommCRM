@@ -29,6 +29,7 @@ import {
   GATILHO_SILENCIO,
   configDaEtapaParada,
   configDoSilencio,
+  recorteDoSilencio,
   type DirecaoDoSilencio,
 } from "@/lib/automation/gatilhos-de-tempo";
 import {
@@ -38,7 +39,7 @@ import {
   type CreateAutomationRuleInput,
 } from "@/lib/schemas/webhooks";
 
-export type OperadorDaCondicao = "eq" | "neq" | "contains";
+export type OperadorDaCondicao = "eq" | "neq" | "contains" | "not_contains";
 
 /**
  * Uma linha do SE. `avancado` é só da tela (mostrar o caminho digitado em vez
@@ -60,7 +61,13 @@ export type TelaDoGatilho = {
   /** `null` = qualquer fonte de formulário. */
   fonte: string | null;
   data: { pipeline_id: string; campo: string; dias: string };
-  tempo: { dias: string; direcao: DirecaoDoSilencio; proteger_pela_agenda: boolean };
+  tempo: {
+    dias: string;
+    /** Ausente = dias. Só o silêncio usa horas. */
+    unidade?: "dias" | "horas";
+    direcao: DirecaoDoSilencio;
+    proteger_pela_agenda: boolean;
+  };
 };
 
 export type AcaoDaRegra = { type: string; config: Record<string, unknown> };
@@ -140,6 +147,7 @@ export const PROBLEMA_DO_CAMPO: Record<string, string> = {
   stage_id: "Escolha a etapa.",
   channel_session_id: "Escolha o número de WhatsApp.",
   template: "Escreva a mensagem.",
+  telefone_destino: "Informe o WhatsApp da equipe com DDD. Ex.: +55 11 90000-0000.",
   agent_id: "Escolha o agente que escreve.",
   instruction: "Diga o que a IA deve fazer com os dados.",
   tags: "Escreva de 1 a 10 tags, cada uma com até 60 caracteres.",
@@ -174,7 +182,12 @@ export function telaDoGatilho(config: unknown): TelaDoGatilho {
       ? { pipeline_id: data.pipeline_id, campo: data.campo, dias: String(data.dias) }
       : { pipeline_id: "", campo: "", dias: DIAS_PADRAO },
     tempo: {
-      dias: tempo ? String(tempo.dias) : DIAS_PADRAO,
+      dias: silencio
+        ? String(silencio.unidade === "horas" ? silencio.horas : silencio.dias)
+        : tempo
+          ? String(tempo.dias)
+          : DIAS_PADRAO,
+      unidade: silencio?.unidade ?? "dias",
       direcao: silencio ? silencio.direcao : "da_equipe",
       proteger_pela_agenda: tempo ? tempo.proteger_pela_agenda : false,
     },
@@ -206,14 +219,24 @@ export function triggerConfigDaTela(
     });
   }
   if (evento === GATILHO_SILENCIO || evento === GATILHO_ETAPA_PARADA) {
-    return configAoSalvarDaTela({
-      ...base,
-      configDaTela: {
-        dias: dias(tela.tempo.dias),
-        ...(evento === GATILHO_SILENCIO ? { direcao: tela.tempo.direcao } : {}),
-        proteger_pela_agenda: tela.tempo.proteger_pela_agenda,
-      },
-    });
+    const unidade = evento === GATILHO_SILENCIO ? (tela.tempo.unidade ?? "dias") : "dias";
+    const quantidade = dias(tela.tempo.dias);
+    return recorteDoSilencio(
+      configAoSalvarDaTela({
+        ...base,
+        configDaTela: {
+          dias: quantidade,
+          ...(evento === GATILHO_SILENCIO
+            ? {
+                direcao: tela.tempo.direcao,
+                ...(unidade === "horas" ? { horas: quantidade, unidade: "horas" } : {}),
+              }
+            : {}),
+          proteger_pela_agenda: tela.tempo.proteger_pela_agenda,
+        },
+      }),
+      unidade,
+    );
   }
   if (evento === "lead.created") {
     return configAoSalvarDaTela({ ...base, configDaTela: { webhook_source_id: tela.fonte } });

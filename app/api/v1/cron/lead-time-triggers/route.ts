@@ -53,6 +53,7 @@ import {
   colunaDaDirecao,
   configDaEtapaParada,
   configDoSilencio,
+  duracaoDoSilencioMs,
   naoDisparadosTemporais,
 } from "@/lib/automation/gatilhos-de-tempo";
 import { autorizaCron } from "@/lib/auth/cron-auth";
@@ -103,7 +104,10 @@ async function handle(req: NextRequest): Promise<Response> {
 
   const todasAsRegras = (regras ?? []) as Regra[];
   if (todasAsRegras.length === 0) {
-    return ok({ organizacoes: 0, regras: 0, examinados: 0, emitidos: 0, pulados: {} }, { requestId });
+    return ok(
+      { organizacoes: 0, regras: 0, examinados: 0, emitidos: 0, pulados: {} },
+      { requestId },
+    );
   }
 
   const orgsComRegra = [...new Set(todasAsRegras.map((r) => r.organization_id))];
@@ -217,8 +221,14 @@ async function handle(req: NextRequest): Promise<Response> {
               lead.created_at as string,
               agora,
               silencio.dias,
+              duracaoDoSilencioMs(silencio),
             );
-            if (ancora) candidatos.push({ leadId: lead.id as string, contactId: lead.contact_id as string, ancora });
+            if (ancora)
+              candidatos.push({
+                leadId: lead.id as string,
+                contactId: lead.contact_id as string,
+                ancora,
+              });
           }
 
           if (leads.length < TETO_POR_ORGANIZACAO) break;
@@ -276,7 +286,12 @@ async function handle(req: NextRequest): Promise<Response> {
 
           for (const lead of leads ?? []) {
             const ancora = ancoraDaEtapa(lead.stage_changed_at as string | null, agora, etapa.dias);
-            if (ancora) candidatos.push({ leadId: lead.id as string, contactId: lead.contact_id as string | null, ancora });
+            if (ancora)
+              candidatos.push({
+                leadId: lead.id as string,
+                contactId: lead.contact_id as string | null,
+                ancora,
+              });
           }
 
           if (!leads || leads.length < TETO_POR_ORGANIZACAO) break;
@@ -285,7 +300,9 @@ async function handle(req: NextRequest): Promise<Response> {
         if (falhouNaConsulta) continue;
 
         if (candidatos.length && etapa.proteger_pela_agenda) {
-          const contatos = candidatos.map((c) => c.contactId).filter((c): c is string => Boolean(c));
+          const contatos = candidatos
+            .map((c) => c.contactId)
+            .filter((c): c is string => Boolean(c));
           const protecoes = await protecaoAgendaSupabase(admin, org, contatos, agora);
           for (const candidato of [...candidatos]) {
             const protecao = candidato.contactId ? protecoes.get(candidato.contactId) : undefined;
@@ -309,11 +326,16 @@ async function handle(req: NextRequest): Promise<Response> {
           .eq("organization_id", org)
           .eq("event_type", regra.trigger_event)
           .eq("payload->>rule_id", regra.id)
-          .in("entity_id", lote.map((c) => c.leadId));
+          .in(
+            "entity_id",
+            lote.map((c) => c.leadId),
+          );
         for (const anterior of anteriores ?? []) {
           const payload = anterior.payload as { ancora?: unknown } | null;
           if (typeof payload?.ancora !== "string" || !payload.ancora) continue;
-          jaEmitidos.add(chaveDeDisparoTemporal(regra.id, anterior.entity_id as string, payload.ancora));
+          jaEmitidos.add(
+            chaveDeDisparoTemporal(regra.id, anterior.entity_id as string, payload.ancora),
+          );
         }
       }
 

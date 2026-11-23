@@ -132,6 +132,20 @@ const ORIGENS: DeclaracaoDeOrigem[] = [
     produtor: { arquivo: "lib/automation/decider.ts" },
   },
   {
+    arquivo: "lib/automation/actions/send-internal-whatsapp.ts",
+    expressao: "reason",
+    porque:
+      "a recusa do aviso interno chega à aba Atividade pelo reason de recusa(); o teto e o espaçamento vêm do pacing e os demais códigos nascem nos retornos deste arquivo",
+    produtor: { arquivo: "lib/automation/actions/send-internal-whatsapp.ts" },
+  },
+  {
+    arquivo: "lib/automation/actions/send-internal-whatsapp.ts",
+    expressao: "pacing.motivo",
+    porque:
+      "com o aviso já na fila, o espaçamento e o teto diário voltam como reason para a próxima tentativa; os dois códigos nascem no ledger do pacing",
+    produtor: { arquivo: "lib/agent-engine/pacing/ledger-supabase.ts" },
+  },
+  {
     arquivo: "lib/automation/actions/send-email.ts",
     expressao: "para.motivo",
     porque:
