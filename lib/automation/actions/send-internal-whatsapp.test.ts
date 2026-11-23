@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { getAction } from "@/lib/automation/actions";
 import {
-  adiarAvisoInterno,
   enviarAvisoInterno,
   type DepsDoAvisoInterno,
 } from "@/lib/automation/actions/send-internal-whatsapp";
@@ -60,12 +59,18 @@ function ctx(extra?: Partial<ActionCtx["context"]>): ActionCtx {
 function deps(sobre: Partial<DepsDoAvisoInterno> = {}): DepsDoAvisoInterno & {
   enviados: string[];
   audits: string[];
+  fila: unknown[];
 } {
   const enviados: string[] = [];
   const audits: string[] = [];
+  const fila: unknown[] = [];
   return {
     enviados,
     audits,
+    fila,
+    enfileirar: async (entrada) => {
+      fila.push(entrada);
+    },
     carregaCanal: async () => CANAL,
     nomeDaFonte: async () => "Site · contato",
     transporte: {
@@ -90,8 +95,10 @@ function deps(sobre: Partial<DepsDoAvisoInterno> = {}): DepsDoAvisoInterno & {
 }
 
 describe("send_internal_whatsapp", () => {
-  it("está registrada no motor", () => {
-    expect(getAction("send_internal_whatsapp")).toBeDefined();
+  it("está registrada no motor e não adia o evento da regra", () => {
+    const acao = getAction("send_internal_whatsapp");
+    expect(acao).toBeDefined();
+    expect(acao?.postponeUntil).toBeUndefined();
   });
 
   it("manda o recado curto e não o formulário", async () => {
@@ -117,7 +124,7 @@ describe("send_internal_whatsapp", () => {
     expect(d.enviados).toEqual([]);
   });
 
-  it("o teto diário adia o evento inteiro e não envia", async () => {
+  it("teto que só volta depois do prazo é descartado, com registro, e não prende a regra", async () => {
     const liberaEm = new Date("2026-11-24T03:00:00.000Z");
     const d = deps({
       pacing: {
@@ -125,13 +132,15 @@ describe("send_internal_whatsapp", () => {
         registraEnvio: async () => undefined,
       },
     });
-    expect(await adiarAvisoInterno(d, ctx(), CONFIG)).toBe(liberaEm.toISOString());
     const executado = await enviarAvisoInterno(d, ctx(), CONFIG);
-    expect(executado.status).toBe("postponed");
+    expect(executado.status).toBe("skipped");
+    expect(executado.detail).toMatchObject({ reason: "teto_diario", desistiu: true });
     expect(d.enviados).toEqual([]);
+    expect(d.fila).toEqual([]);
+    expect(d.audits).toEqual(["automation.internal_whatsapp_failed"]);
   });
 
-  it("o espaçamento também segura", async () => {
+  it("espaçamento curto vai para a fila própria e a ação não fica adiada no motor", async () => {
     const liberaEm = new Date("2026-11-23T15:00:02.000Z");
     const d = deps({
       pacing: {
@@ -139,14 +148,28 @@ describe("send_internal_whatsapp", () => {
         registraEnvio: async () => undefined,
       },
     });
-    expect(await adiarAvisoInterno(d, ctx(), CONFIG)).toBe(liberaEm.toISOString());
+    const executado = await enviarAvisoInterno(d, ctx(), CONFIG);
+    expect(executado.status).toBe("postponed");
+    expect(executado.detail).toMatchObject({ reason: "agendado", motivo: "espacamento" });
+    expect(d.fila).toHaveLength(1);
+    expect(d.enviados).toEqual([]);
+    expect(d.audits).toEqual(["automation.internal_whatsapp_queued"]);
   });
 
-  it("canal fora do ar adia, e depois do teto de tentativas não adia mais", async () => {
+  it("sessão fora de WORKING enfileira e não chama o transporte", async () => {
     const d = deps({ carregaCanal: async () => ({ ...CANAL, status: "SCAN_QR_CODE" }) });
-    const cedo = ctx();
-    expect(await adiarAvisoInterno(d, cedo, CONFIG)).toBe("2026-11-23T15:05:00.000Z");
-    cedo.event.attempts = 6;
-    expect(await adiarAvisoInterno(d, cedo, CONFIG)).toBeNull();
+    const executado = await enviarAvisoInterno(d, ctx(), CONFIG);
+    expect(executado.status).toBe("postponed");
+    expect(executado.detail).toMatchObject({ reason: "agendado", motivo: "canal_desconectado" });
+    expect(d.enviados).toEqual([]);
+    expect(d.fila).toHaveLength(1);
+  });
+
+  it("canal que não manda texto livre nem entra na fila", async () => {
+    const d = deps({ carregaCanal: async () => ({ ...CANAL, aceitaMensagemLivre: false }) });
+    const executado = await enviarAvisoInterno(d, ctx(), CONFIG);
+    expect(executado).toMatchObject({ status: "skipped", detail: { reason: "canal_nao_aceita_aviso_livre" } });
+    expect(d.fila).toEqual([]);
+    expect(d.enviados).toEqual([]);
   });
 });

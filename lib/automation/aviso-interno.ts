@@ -18,9 +18,15 @@ export type VariavelDoAvisoInterno = (typeof VARIAVEIS_DO_AVISO_INTERNO)[number]
 
 const PERMITIDAS = new Set<string>(VARIAVEIS_DO_AVISO_INTERNO);
 
-/** O que o modelo cita entre `{{ }}`. */
+/**
+ * Toda marcação `{{...}}`, não só nome com letra e ponto.
+ *
+ * `{{first-name}}` tem hífen: o recorte antigo nem via a marcação, o modelo
+ * passava na validação e o texto saía com o colchete cru. Aqui qualquer
+ * conteúdo que não seja uma das quatro marcações recusa o modelo inteiro.
+ */
 export function variaveisCitadas(modelo: string): string[] {
-  return [...modelo.matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)].map((m) => m[1] ?? "");
+  return [...modelo.matchAll(/\{\{([^{}]*)\}\}/g)].map((m) => (m[1] ?? "").trim());
 }
 
 export function modeloDeAvisoInternoValido(modelo: string): boolean {
@@ -63,9 +69,10 @@ export function dadosDoAvisoInterno(entrada: {
 /** Preenche o modelo. Recusa (devolve `null`) se houver marcação fora da lista. */
 export function renderAvisoInterno(modelo: string, dados: DadosDoAvisoInterno): string | null {
   if (!modeloDeAvisoInternoValido(modelo)) return null;
-  return modelo.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, nome: string) => {
-    if (!PERMITIDAS.has(nome)) return "";
-    return dados[nome as VariavelDoAvisoInterno];
+  return modelo.replace(/\{\{([^{}]*)\}\}/g, (_m, nome: string) => {
+    const chave = nome.trim();
+    if (!PERMITIDAS.has(chave)) return "";
+    return dados[chave as VariavelDoAvisoInterno];
   });
 }
 

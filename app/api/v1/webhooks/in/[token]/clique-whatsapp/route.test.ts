@@ -4,7 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   permitido: true,
   resultado: { ok: true } as { ok: true } | { ok: false; recusa: string },
-  chamadas: [] as Array<{ token: string; leadId: string }>,
+  chamadas: [] as Array<{
+    token: string;
+    leadId: string;
+    rawBody: string;
+    assinatura: string | null;
+  }>,
 }));
 
 vi.mock("@/lib/ai/dispatcher/rate-limit", () => ({
@@ -17,12 +22,22 @@ vi.mock("@/lib/webhooks/clique-whatsapp", async () => {
   );
   return {
     ...real,
-    aplicarCliqueWhatsapp: async (_admin: unknown, entrada: { token: string; leadId: string }) => {
-      h.chamadas.push({ token: entrada.token, leadId: entrada.leadId });
+    aplicarCliqueWhatsapp: async (
+      _admin: unknown,
+      entrada: { token: string; leadId: string; rawBody: string; assinatura: string | null },
+    ) => {
+      h.chamadas.push({
+        token: entrada.token,
+        leadId: entrada.leadId,
+        rawBody: entrada.rawBody,
+        assinatura: entrada.assinatura,
+      });
       return h.resultado;
     },
   };
 });
+
+import { HEADER_ASSINATURA_DE_ENTRADA } from "@/lib/webhooks/assinatura";
 
 import { POST } from "./route";
 
@@ -51,7 +66,8 @@ describe("POST clique-whatsapp", () => {
     const res = await pedido(JSON.stringify({ lead_id: LEAD }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { ok: true } });
-    expect(h.chamadas).toEqual([{ token: TOKEN, leadId: LEAD }]);
+    const corpo = JSON.stringify({ lead_id: LEAD });
+    expect(h.chamadas).toEqual([{ token: TOKEN, leadId: LEAD, rawBody: corpo, assinatura: null }]);
   });
 
   it("corpo com resposta de score ou dado de saúde é recusado e não segue", async () => {
@@ -82,6 +98,26 @@ describe("POST clique-whatsapp", () => {
     h.resultado = { ok: false, recusa: "lead_expirado" };
     const res = await pedido(JSON.stringify({ lead_id: LEAD }));
     expect(res.status).toBe(409);
+  });
+
+  it("repassa o corpo cru e a mesma assinatura da captação", async () => {
+    const corpo = `{"lead_id":"${LEAD}"}`;
+    const res = await POST(
+      new NextRequest(`http://localhost/api/v1/webhooks/in/${TOKEN}/clique-whatsapp`, {
+        method: "POST",
+        body: corpo,
+        headers: { "content-type": "application/json", [HEADER_ASSINATURA_DE_ENTRADA]: "abc123" },
+      }),
+      { params: Promise.resolve({ token: TOKEN }) },
+    );
+    expect(res.status).toBe(200);
+    expect(h.chamadas).toEqual([{ token: TOKEN, leadId: LEAD, rawBody: corpo, assinatura: "abc123" }]);
+  });
+
+  it("assinatura recusada responde 401", async () => {
+    h.resultado = { ok: false, recusa: "assinatura_invalida" };
+    const res = await pedido(JSON.stringify({ lead_id: LEAD }));
+    expect(res.status).toBe(401);
   });
 
   it("lead de outra fonte vira 404", async () => {

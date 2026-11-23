@@ -13,6 +13,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { createAutomationRuleSchema } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { remetenteDeAvisoRecusado } from "@/lib/automation/remetente-do-aviso";
 import { encryptRuleActionSecrets } from "@/lib/webhooks/secrets";
 import { traduzir } from "@/lib/i18n/dicionario";
 
@@ -70,6 +71,14 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const supabase = await createClient();
+  if (await remetenteDeAvisoRecusado(supabase, activeOrg.orgId, parsed.data.actions)) {
+    return fail(
+      "invalid_request",
+      t("Este número não envia aviso interno. O recado para a equipe sai por uma sessão que manda mensagem livre."),
+      422,
+      { requestId },
+    );
+  }
   const webhookSourceId = parsed.data.trigger_config?.webhook_source_id;
   if (typeof webhookSourceId === "string") {
     const { data: source, error: sourceError } = await supabase

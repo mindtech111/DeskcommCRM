@@ -19,6 +19,7 @@ import {
 import { usePipelines, usePipelineStages } from "@/hooks/webhooks/useWebhookSources";
 import { useAgentsList } from "@/hooks/ai/useAgents";
 import { channelLabel, useChannelSessions } from "@/hooks/channels/useChannelSessions";
+import { aceitaAvisoLivre } from "@/lib/channels/aviso-livre";
 import { useAssignableMembers } from "@/hooks/inbox/useAssignableMembers";
 import { useDefaultPipeline } from "@/hooks/pipelines/useDefaultPipeline";
 import { camposDoFunil } from "@/lib/leads/campos-do-funil";
@@ -949,13 +950,28 @@ function SendInternalWhatsappForm({
             <SelectValue placeholder={t("Escolha o número")} />
           </SelectTrigger>
           <SelectContent>
-            {(sessions ?? []).map((s) => (
-              <SelectItem key={s.id} value={s.id} disabled={s.status !== "WORKING"}>
-                {channelLabel(s) + (s.status !== "WORKING" ? " — desconectado" : "")}
-              </SelectItem>
-            ))}
+            {(sessions ?? []).map((s) => {
+              const livre = aceitaAvisoLivre(s.provider);
+              const sufixo = !livre
+                ? ` — ${t("não envia aviso interno")}`
+                : s.status !== "WORKING"
+                  ? " — desconectado"
+                  : "";
+              return (
+                <SelectItem key={s.id} value={s.id} disabled={s.status !== "WORKING" || !livre}>
+                  {channelLabel(s) + sufixo}
+                </SelectItem>
+              );
+            })}
           </SelectContent>
         </Select>
+        {(sessions ?? []).some((s) => !aceitaAvisoLivre(s.provider)) ? (
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "Este número não envia aviso interno. O recado para a equipe sai por uma sessão que manda mensagem livre.",
+            )}
+          </p>
+        ) : null}
       </div>
       <div className="space-y-1">
         <Label htmlFor="telefone-do-aviso">{t("Número que recebe o aviso")}</Label>

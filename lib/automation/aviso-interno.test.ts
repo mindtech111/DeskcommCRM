@@ -22,6 +22,12 @@ describe("modelo do aviso interno", () => {
     expect(modeloDeAvisoInternoValido("texto sem marcação")).toBe(true);
   });
 
+  it("recusa {{first-name}} e qualquer marcação fora da lista", () => {
+    expect(modeloDeAvisoInternoValido("Novo lead: {{first-name}}")).toBe(false);
+    expect(renderAvisoInterno("Novo lead: {{first-name}}", DADOS)).toBeNull();
+    expect(modeloDeAvisoInternoValido("{{ }}")).toBe(false);
+  });
+
   it("recusa campo de formulário, resposta do score e dado de saúde", () => {
     for (const modelo of [
       "Resposta: {{lead.custom_fields.resposta}}",

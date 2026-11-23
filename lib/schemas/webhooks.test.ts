@@ -162,6 +162,24 @@ describe("send_internal_whatsapp e silêncio em horas", () => {
     expect(r.success).toBe(true);
   });
 
+  it("recusa marcação desconhecida, inclusive com hífen", () => {
+    const r = createAutomationRuleSchema.safeParse({
+      name: "Aviso",
+      trigger_event: "lead.created",
+      actions: [
+        {
+          type: "send_internal_whatsapp",
+          config: {
+            channel_session_id: sessao,
+            telefone_destino: "+5511926198917",
+            template: "Novo lead: {{first-name}}",
+          },
+        },
+      ],
+    });
+    expect(r.success).toBe(false);
+  });
+
   it("recusa modelo que pede campo do formulário", () => {
     const r = createAutomationRuleSchema.safeParse({
       name: "Aviso",

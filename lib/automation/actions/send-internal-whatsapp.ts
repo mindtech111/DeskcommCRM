@@ -9,6 +9,7 @@
  * protege o cliente. O que protege o NÚMERO — espaçamento e teto — continua.
  */
 import { registerAction } from "@/lib/automation/actions";
+import { EVENTO_AVISO_INTERNO, prazoDoAviso } from "@/lib/automation/aviso-interno-fila";
 import {
   dadosDoAvisoInterno,
   modeloDeAvisoInternoValido,
@@ -19,7 +20,6 @@ import {
 import type { ActionCtx, ActionResultDetail } from "@/lib/automation/types";
 import {
   ADIAMENTO_DO_CANAL_MS,
-  TETO_DE_TENTATIVAS_DO_CANAL,
   mascara,
   type CanalDoAviso,
   type PacingDoAviso,
@@ -55,8 +55,25 @@ export interface DepsDoAvisoInterno {
   pacing: PacingDoAviso;
   urlPublica: string;
   clock: () => Date;
+  /**
+   * Grava o evento próprio da fila. Quem chama já decidiu esperar. Não adia o
+   * evento da regra — as outras ações seguem.
+   */
+  enfileirar(entrada: {
+    organizationId: string;
+    chave: string;
+    ruleId: string;
+    leadId: string;
+    channelSessionId: string;
+    telefone: string;
+    template: string;
+    prazoEm: string;
+  }): Promise<void>;
   audita: (entrada: {
-    action: "automation.internal_whatsapp_sent" | "automation.internal_whatsapp_failed";
+    action:
+      | "automation.internal_whatsapp_sent"
+      | "automation.internal_whatsapp_failed"
+      | "automation.internal_whatsapp_queued";
     organizationId: string;
     ruleId: string;
     leadId: string | null;
@@ -64,8 +81,8 @@ export interface DepsDoAvisoInterno {
   }) => void;
 }
 
-function pulada(reason: string, extra?: Record<string, unknown>): ActionResultDetail {
-  return { type: TIPO, status: "skipped", detail: { reason, ...extra } };
+function recusa(reason: string, extra?: Record<string, unknown>): ActionResultDetail {
+  return { type: TIPO, status: "skipped", detail: { reason: reason, ...extra } };
 }
 
 function leadDoContexto(
@@ -78,36 +95,67 @@ function leadDoContexto(
     | undefined;
 }
 
-/**
- * Quando o evento inteiro deve esperar, antes de qualquer ação.
- *
- * Canal fora do ar e pacing fechado viram espera. Configuração torta devolve
- * `null`: quem recusa é o `execute`, com o motivo na linha da execução.
- */
-export async function adiarAvisoInterno(
-  deps: Pick<DepsDoAvisoInterno, "carregaCanal" | "pacing" | "clock">,
+async function deixarParaAFila(
+  deps: DepsDoAvisoInterno,
   ctx: ActionCtx,
-  config: Record<string, unknown>,
-): Promise<string | null> {
-  const lido = lerConfigDoAvisoInterno(config);
-  if (!lido) return null;
-  const agora = deps.clock();
-  const tentativas = ctx.event.attempts + 1;
-  const canal = await deps.carregaCanal(ctx.organizationId, lido.channelSessionId);
-  if (!canal || canal.archived_at || canal.desativado || !canal.aceitaMensagemLivre) return null;
-  if (canal.status !== "WORKING") {
-    if (tentativas >= TETO_DE_TENTATIVAS_DO_CANAL) return null;
-    return new Date(agora.getTime() + ADIAMENTO_DO_CANAL_MS).toISOString();
+  lido: ConfigDoAvisoInterno,
+  motivo: string,
+  liberaEm: Date,
+): Promise<ActionResultDetail> {
+  const lead = leadDoContexto(ctx);
+  const leadId = typeof lead?.id === "string" ? lead.id : "";
+  if (!leadId) return recusa("no_target");
+  const prazoEm = prazoDoAviso(deps.clock());
+  // O slot só volta depois do prazo: esperar não entrega. Registra e desiste.
+  if (liberaEm.getTime() > Date.parse(prazoEm)) {
+    deps.audita({
+      action: "automation.internal_whatsapp_failed",
+      organizationId: ctx.organizationId,
+      ruleId: ctx.ruleId,
+      leadId,
+      metadata: { codigo: motivo, canal: lido.channelSessionId },
+    });
+    return recusa(motivo, { desistiu: true });
   }
-  const pacing = await deps.pacing.decide(ctx.organizationId, lido.channelSessionId, agora);
-  if (!pacing.liberado) return pacing.liberaEm.toISOString();
-  return null;
+  await deps.enfileirar({
+    organizationId: ctx.organizationId,
+    chave: `${ctx.ruleId}:${ctx.event.id}:${ctx.actionIndex ?? 0}`,
+    ruleId: ctx.ruleId,
+    leadId,
+    channelSessionId: lido.channelSessionId,
+    telefone: lido.telefone,
+    template: lido.modelo,
+    prazoEm,
+  });
+  deps.audita({
+    action: "automation.internal_whatsapp_queued",
+    organizationId: ctx.organizationId,
+    ruleId: ctx.ruleId,
+    leadId,
+    metadata: { codigo: motivo, ate: prazoEm, canal: lido.channelSessionId },
+  });
+  // `postponed` aqui NÃO reagenda o evento da regra: o motor só faz isso no
+  // `postponeUntil`, e esta ação não tem. O ícone de espera é o registro de
+  // que a fila própria ainda vai tentar. As ações seguintes desta regra, e as
+  // outras regras do mesmo evento, seguem agora.
+  return {
+    type: TIPO,
+    status: "postponed",
+    detail: {
+      reason: "agendado",
+      motivo,
+      retry_at: liberaEm.toISOString(),
+      explicacao:
+        "O aviso entrou na fila dele e tenta sair sozinho por até seis horas, sem segurar as outras ações. Se não sair nesse prazo, a falha fica registrada na auditoria.",
+    },
+  };
 }
 
 export async function enviarAvisoInterno(
   deps: DepsDoAvisoInterno,
   ctx: ActionCtx,
   config: Record<string, unknown>,
+  opts?: { naFila?: boolean },
 ): Promise<ActionResultDetail> {
   const lido = lerConfigDoAvisoInterno(config);
   if (!lido) {
@@ -115,7 +163,7 @@ export async function enviarAvisoInterno(
     const proibida = variaveisCitadas(modelo).find(
       (nome) => !modeloDeAvisoInternoValido(`{{${nome}}}`),
     );
-    return pulada(
+    return recusa(
       proibida ? "variavel_nao_permitida" : "missing_config",
       proibida ? { variavel: proibida } : undefined,
     );
@@ -123,31 +171,48 @@ export async function enviarAvisoInterno(
 
   const agora = deps.clock();
   const canal = await deps.carregaCanal(ctx.organizationId, lido.channelSessionId);
-  if (!canal || canal.archived_at) return pulada("canal_arquivado");
-  if (canal.desativado) return pulada("canal_desativado");
-  if (!canal.aceitaMensagemLivre) return pulada("canal_nao_aceita_aviso_livre");
-  if (canal.status !== "WORKING") return pulada("canal_desconectado");
+  if (!canal || canal.archived_at) return recusa("aviso_remetente_arquivado");
+  if (canal.desativado) return recusa("canal_desativado");
+  if (!canal.aceitaMensagemLivre) return recusa("canal_nao_aceita_aviso_livre");
+  if (canal.status !== "WORKING") {
+    if (opts?.naFila) return recusa("canal_desconectado");
+    return deixarParaAFila(
+      deps,
+      ctx,
+      lido,
+      "canal_desconectado",
+      new Date(agora.getTime() + ADIAMENTO_DO_CANAL_MS),
+    );
+  }
 
   const precisaDeLink = variaveisCitadas(lido.modelo).includes("link");
-  if (precisaDeLink && !urlPublicaUsavel(deps.urlPublica)) return pulada("sem_endereco_publico");
+  if (precisaDeLink && !urlPublicaUsavel(deps.urlPublica)) return recusa("sem_endereco_publico");
 
   if (!(await deps.transporte.configurado(ctx.organizationId, canal))) {
-    return pulada("transporte_ausente");
+    if (opts?.naFila) return recusa("transporte_ausente");
+    return deixarParaAFila(
+      deps,
+      ctx,
+      lido,
+      "transporte_ausente",
+      new Date(agora.getTime() + ADIAMENTO_DO_CANAL_MS),
+    );
   }
 
   const pacing = await deps.pacing.decide(ctx.organizationId, lido.channelSessionId, agora);
   if (!pacing.liberado) {
-    // O adiar já deveria ter segurado o evento. Se o teto fechou no meio,
-    // não enviar é o que protege o número — a execução registra o motivo.
-    return {
-      type: TIPO,
-      status: "postponed",
-      detail: { reason: pacing.motivo, retry_at: pacing.liberaEm.toISOString() },
-    };
+    if (opts?.naFila) {
+      return {
+        type: TIPO,
+        status: "postponed",
+        detail: { reason: pacing.motivo, retry_at: pacing.liberaEm.toISOString() },
+      };
+    }
+    return deixarParaAFila(deps, ctx, lido, pacing.motivo, pacing.liberaEm);
   }
 
   const to = await deps.transporte.resolveDestino(ctx.organizationId, canal, lido.telefone);
-  if (!to) return pulada("destino_invalido");
+  if (!to) return recusa("destino_invalido");
 
   const lead = leadDoContexto(ctx);
   const fonteId = typeof lead?.webhook_source_id === "string" ? lead.webhook_source_id : null;
@@ -162,21 +227,30 @@ export async function enviarAvisoInterno(
       urlPublica: deps.urlPublica,
     }),
   );
-  if (corpo === null) return pulada("variavel_nao_permitida");
+  if (corpo === null) return recusa("variavel_nao_permitida");
 
   const leadId = typeof lead?.id === "string" ? lead.id : null;
   try {
     await deps.transporte.envia(ctx.organizationId, canal, to, corpo);
-  } catch (err) {
-    const causa = err instanceof Error ? err.message : String(err);
-    deps.audita({
-      action: "automation.internal_whatsapp_failed",
-      organizationId: ctx.organizationId,
-      ruleId: ctx.ruleId,
-      leadId,
-      metadata: { codigo: "falha_no_envio", canal: lido.channelSessionId },
-    });
-    return { type: TIPO, status: "failed", error: causa.slice(0, 300) };
+  } catch {
+    if (!opts?.naFila) {
+      return deixarParaAFila(
+        deps,
+        ctx,
+        lido,
+        "falha_no_envio",
+        new Date(agora.getTime() + ADIAMENTO_DO_CANAL_MS),
+      );
+    }
+    // Já está na fila: uma falha de rede não encerra. Quem desiste é o prazo.
+    return {
+      type: TIPO,
+      status: "postponed",
+      detail: {
+        reason: "falha_no_envio",
+        retry_at: new Date(agora.getTime() + ADIAMENTO_DO_CANAL_MS).toISOString(),
+      },
+    };
   }
 
   try {
@@ -231,14 +305,36 @@ async function depsDeProducao(ctx: ActionCtx): Promise<DepsDoAvisoInterno> {
         metadata: { ...entrada.metadata, lead_id: entrada.leadId },
       });
     },
+    async enfileirar(entrada) {
+      const { data: ja } = await ctx.admin
+        .from("event_log")
+        .select("id")
+        .eq("organization_id", entrada.organizationId)
+        .eq("event_type", EVENTO_AVISO_INTERNO)
+        .contains("payload", { chave: entrada.chave })
+        .limit(1);
+      if (ja && ja.length > 0) return;
+      const { error } = await ctx.admin.rpc("emit_event", {
+        // Literal de propósito: a cerca de evento órfão só vê a string, não a constante.
+        p_event_type: "automation.internal_whatsapp" satisfies typeof EVENTO_AVISO_INTERNO,
+        p_entity_kind: "crm_lead",
+        p_entity_id: entrada.leadId,
+        p_payload: {
+          chave: entrada.chave,
+          rule_id: entrada.ruleId,
+          lead_id: entrada.leadId,
+          channel_session_id: entrada.channelSessionId,
+          telefone_destino: entrada.telefone,
+          template: entrada.template,
+          prazo_em: entrada.prazoEm,
+          tentativas: 0,
+        },
+        p_metadata: { caused_by_rule: entrada.ruleId },
+        p_organization_id: entrada.organizationId,
+      });
+      if (error) throw new Error(error.message);
+    },
   };
-}
-
-async function postponeUntil(
-  ctx: ActionCtx,
-  config: Record<string, unknown>,
-): Promise<string | null> {
-  return adiarAvisoInterno(await depsDeProducao(ctx), ctx, config);
 }
 
 async function execute(
@@ -248,4 +344,4 @@ async function execute(
   return enviarAvisoInterno(await depsDeProducao(ctx), ctx, config);
 }
 
-registerAction({ type: TIPO, postponeUntil, execute });
+registerAction({ type: TIPO, execute });

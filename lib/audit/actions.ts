@@ -1168,6 +1168,7 @@ export const AUDIT_ACTIONS = [
   // canal e o destino mascarado — nunca o texto, que pode citar o nome.
   "automation.internal_whatsapp_sent",
   "automation.internal_whatsapp_failed",
+  "automation.internal_whatsapp_queued",
   // O site avisou que a pessoa clicou para abrir o WhatsApp. Sem corpo:
   // o fato é a tag, e o lead já está no funil.
   "webhook.whatsapp_click",

@@ -12,6 +12,7 @@ import { fail, ok } from "@/lib/api/wrappers";
 import { checkRateLimit } from "@/lib/ai/dispatcher/rate-limit";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { HEADER_ASSINATURA_DE_ENTRADA } from "@/lib/webhooks/assinatura";
 import { aplicarCliqueWhatsapp, type RecusaDoClique } from "@/lib/webhooks/clique-whatsapp";
 
 export const dynamic = "force-dynamic";
@@ -27,12 +28,18 @@ const corpoSchema = z
 
 const RECUSA: Record<
   RecusaDoClique,
-  { code: "not_found" | "state_conflict" | "invalid_request"; status: number; message: string }
+  {
+    code: "not_found" | "state_conflict" | "invalid_request" | "unauthenticated";
+    status: number;
+    message: string;
+  }
 > = {
   fonte_desconhecida: { code: "not_found", status: 404, message: "unknown webhook token" },
   corpo_invalido: { code: "invalid_request", status: 400, message: "invalid_body" },
   lead_fora_da_fonte: { code: "not_found", status: 404, message: "lead_fora_da_fonte" },
   lead_expirado: { code: "state_conflict", status: 409, message: "lead_expirado" },
+  assinatura_invalida: { code: "unauthenticated", status: 401, message: "invalid_signature" },
+  assinatura_indecifravel: { code: "unauthenticated", status: 401, message: "invalid_signature" },
 };
 
 interface RouteCtx {
@@ -54,9 +61,10 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
     });
   }
 
+  const rawBody = await req.text();
   let bruto: unknown;
   try {
-    bruto = await req.json();
+    bruto = rawBody ? JSON.parse(rawBody) : {};
   } catch {
     return fail("invalid_request", "invalid_json", 400, { requestId });
   }
@@ -72,6 +80,8 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
       leadId: corpo.data.lead_id,
       agora: new Date(),
       requestId,
+      rawBody,
+      assinatura: req.headers.get(HEADER_ASSINATURA_DE_ENTRADA),
     });
   } catch (err) {
     logger.error("[webhooks.clique] falha ao marcar o clique", {
