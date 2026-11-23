@@ -34,6 +34,16 @@ name: e2e
 on:
   pull_request:
     branches: [main]
+    # `labeled` existe para o e2e SOB PEDIDO (vars.E2E_SOB_PEDIDO, ver o job
+    # `e2e-alcance`): pôr o rótulo `e2e` num PR tem de disparar a medição sem
+    # exigir um push novo. Os três primeiros são o padrão do GitHub, escritos
+    # porque declarar `types` substitui o padrão em vez de somar.
+    #
+    # Custo com a chave DESLIGADA: qualquer rótulo novo refaz a rodada do PR,
+    # que segue a régua de sempre (pr-alcanca-o-e2e.sh). Responder `nao` aqui
+    # para rótulo alheio esconderia um vermelho anterior do mesmo commit: o
+    # check `e2e` que o PR mostra é o da rodada mais recente.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
 
@@ -94,10 +104,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
+          # E2E SOB PEDIDO (fork mindtech111, 23/11/2026). O GitHub desligou os
+          # workflows do fork "pela escala de uso do Actions"; o e2e em PR era
+          # 43% dos minutos medidos de 09 a 23/11. Com a variável do repositório
+          # em `ligado`, PR sem o rótulo `e2e` responde `nao` e o agregador aceita
+          # as partes puladas pela mesma porta de sempre. A `main` (push) segue
+          # medindo tudo. Variável ausente ou com outro valor: régua de antes.
+          # Os rótulos vêm do payload e entram por env, nunca colados no script.
+          SOB_PEDIDO: ${{ vars.E2E_SOB_PEDIDO }}
+          ROTULOS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: |
           set -uo pipefail
           if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
             echo "e2e=sim" >> "$GITHUB_OUTPUT"; echo "evento ${GITHUB_EVENT_NAME}: roda"; exit 0
+          fi
+          if [ "${SOB_PEDIDO:-}" = "ligado" ]; then
+            case ",${ROTULOS:-}," in
+              *,e2e,*) echo "e2e sob pedido: o PR tem o rótulo e2e — segue a régua de arquivos" ;;
+              *)
+                echo "e2e=nao" >> "$GITHUB_OUTPUT"
+                echo "e2e sob pedido (vars.E2E_SOB_PEDIDO=ligado): PR sem o rótulo e2e — partes puladas. Ponha o rótulo para medir." | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+                exit 0 ;;
+            esac
           fi
           if ! arquivos=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --jq '.[].filename'); then
             echo "e2e=sim" >> "$GITHUB_OUTPUT"; echo "::warning::não consegui listar os arquivos do PR — roda"; exit 0
