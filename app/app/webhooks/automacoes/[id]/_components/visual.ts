@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 import {
   Bell,
   Brain,
+  ChatsCircle,
   EnvelopeSimple,
   FlowArrow,
   Funnel,
@@ -33,11 +34,23 @@ export interface VisualDaCaixa {
   paleta: string;
 }
 
-const ACCENT = { chipClassName: "bg-accent-soft text-accent", borderClassName: "border-l-accent-500" };
-const ACCENT_SOLIDO = { chipClassName: "bg-accent text-accent-foreground", borderClassName: "border-l-accent-700" };
+const ACCENT = {
+  chipClassName: "bg-accent-soft text-accent",
+  borderClassName: "border-l-accent-500",
+};
+const ACCENT_SOLIDO = {
+  chipClassName: "bg-accent text-accent-foreground",
+  borderClassName: "border-l-accent-700",
+};
 const INFO = { chipClassName: "bg-info-bg text-info-fg", borderClassName: "border-l-info" };
-const AVISO = { chipClassName: "bg-warning-bg text-warning-fg", borderClassName: "border-l-warning" };
-const SUCESSO = { chipClassName: "bg-success-bg text-success-fg", borderClassName: "border-l-success" };
+const AVISO = {
+  chipClassName: "bg-warning-bg text-warning-fg",
+  borderClassName: "border-l-warning",
+};
+const SUCESSO = {
+  chipClassName: "bg-success-bg text-success-fg",
+  borderClassName: "border-l-success",
+};
 
 export const VISUAL_DO_GATILHO: VisualDaCaixa = { icon: Play, paleta: "Gatilho", ...ACCENT };
 export const VISUAL_DAS_CONDICOES: VisualDaCaixa = { icon: Funnel, paleta: "Condições", ...AVISO };
@@ -55,6 +68,7 @@ export const VISUAL_DA_ACAO: Record<ActionType, VisualDaCaixa> = {
   start_message_flow: { icon: FlowArrow, paleta: "Iniciar follow-up", ...SUCESSO },
   create_task: { icon: Bell, paleta: "Tarefa interna", ...AVISO },
   apply_task_plan: { icon: ListChecks, paleta: "Plano de tarefas", ...AVISO },
+  send_internal_whatsapp: { icon: ChatsCircle, paleta: "Aviso interno", ...AVISO },
 };
 
 /** A ordem da paleta: a mesma do seletor "Adicionar ação" do editor de hoje. */

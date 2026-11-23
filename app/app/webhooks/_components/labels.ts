@@ -15,7 +15,8 @@ export type ActionType =
   | "call_webhook"
   | "start_message_flow"
   | "create_task"
-  | "apply_task_plan";
+  | "apply_task_plan"
+  | "send_internal_whatsapp";
 
 export const TRIGGER_LABELS: Record<TriggerEvent, string> = {
   "lead.created": "Quando entrar um contato novo (webhook)",
@@ -60,7 +61,7 @@ export const TRIGGER_LABELS: Record<TriggerEvent, string> = {
   "lead.date_field_due": "Quando faltarem N dias para uma data do funil",
   // #1540 — gatilhos por TEMPO: a frase diz a DURAÇÃO, e os detalhes (N, direção,
   // funil) ficam embaixo, na configuração da regra.
-  "lead.silent_for": "Quando ficar N dias sem mensagem",
+  "lead.silent_for": "Quando ficar um tempo sem mensagem",
   "lead.stage_stale": "Quando um lead ficar N dias na mesma etapa",
 };
 
@@ -80,4 +81,5 @@ export const ACTION_LABELS: Record<ActionType, string> = {
   // #1752 — a SEQUÊNCIA em vez do lembrete único: aplica um plano salvo em
   // Tarefas › Planos ao negócio, criando as N tarefas de uma vez e na ordem.
   apply_task_plan: "Aplicar um plano de tarefas ao negócio",
+  send_internal_whatsapp: "Aviso interno no WhatsApp (para a equipe)",
 };

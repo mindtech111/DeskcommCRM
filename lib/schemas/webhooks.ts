@@ -7,6 +7,7 @@
  * na primeira vez que alguém acrescentou um. Agora não há número a envelhecer.)
  */
 import { z } from "zod";
+import { modeloDeAvisoInternoValido, telefoneDeAvisoInterno } from "@/lib/automation/aviso-interno";
 import { webhookFormFieldsSchema } from "@/lib/webhooks/formulario";
 
 import {
@@ -218,7 +219,7 @@ export const TRIGGER_EVENTS = Object.keys(ENTIDADE_ESPERADA_POR_GATILHO) as [
 
 export const conditionSchema = z.object({
   field: z.string().min(1).max(200),
-  op: z.enum(["eq", "neq", "contains"]),
+  op: z.enum(["eq", "neq", "contains", "not_contains"]),
   value: z.string().max(500),
 });
 
@@ -379,6 +380,35 @@ const acoesFixas = [
       plano_id: z.string().trim().min(1).max(64),
     }),
   }),
+  // Aviso para a EQUIPE. O modelo é uma lista fechada de marcações: primeiro
+  // nome, origem, assunto e link do card. O refine recusa na porta o que o
+  // envio recusaria — uma regra salva que nunca manda.
+  z.object({
+    type: z.literal("send_internal_whatsapp"),
+    config: z
+      .object({
+        channel_session_id: z.string().uuid(),
+        telefone_destino: z.string().trim().min(8).max(20),
+        template: z.string().trim().min(1).max(500),
+      })
+      .superRefine((config, ctx) => {
+        if (!telefoneDeAvisoInterno(config.telefone_destino)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["telefone_destino"],
+            message: "Informe o WhatsApp da equipe com DDD. Ex.: +55 11 90000-0000.",
+          });
+        }
+        if (!modeloDeAvisoInternoValido(config.template)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["template"],
+            message:
+              "O texto só pode usar {{primeiro_nome}}, {{origem}}, {{assunto}} e {{link}}. Resposta de formulário e dado de saúde não entram.",
+          });
+        }
+      }),
+  }),
 ] as const;
 
 /**
@@ -535,7 +565,7 @@ function exigirConfigDosGatilhosDeTempo(
     ctx.addIssue({
       code: "custom",
       path: ["trigger_config"],
-      message: "Escolha há quantos dias de silêncio e de quem é o silêncio (equipe, cliente ou qualquer).",
+      message: "Escolha há quanto tempo de silêncio (horas ou dias) e de quem é o silêncio (equipe, cliente ou qualquer).",
     });
     return;
   }

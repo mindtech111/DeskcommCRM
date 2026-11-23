@@ -10,7 +10,9 @@ import {
   colunaDaDirecao,
   configDaEtapaParada,
   configDoSilencio,
+  duracaoDoSilencioMs,
   naoDisparadosTemporais,
+  recorteDoSilencio,
 } from "./gatilhos-de-tempo";
 
 /**
@@ -30,9 +32,38 @@ describe("a configuração dos dois gatilhos", () => {
   it("lê silêncio completo e aplica os padrões", () => {
     expect(configDoSilencio({ dias: 7, direcao: "da_equipe" })).toEqual({
       dias: 7,
+      horas: 0,
+      unidade: "dias",
       direcao: "da_equipe",
       pipeline_id: null,
       proteger_pela_agenda: false,
+    });
+  });
+
+  it("regra antiga, só com dias, continua em dias — horas não encurta o que já existia", () => {
+    const antiga = configDoSilencio({ dias: 3, horas: 2, direcao: "do_cliente" });
+    expect(antiga?.unidade).toBe("dias");
+    expect(duracaoDoSilencioMs(antiga!)).toBe(3 * 86_400_000);
+  });
+
+  it("aceita horas quando a unidade pede, ou quando não há dias", () => {
+    expect(configDoSilencio({ horas: 2, unidade: "horas", direcao: "do_cliente" })).toMatchObject({
+      unidade: "horas",
+      horas: 2,
+      dias: 0,
+    });
+    expect(configDoSilencio({ horas: 2, direcao: "do_cliente" })?.unidade).toBe("horas");
+    expect(configDoSilencio({ horas: 0, direcao: "do_cliente" })).toBeNull();
+    expect(configDoSilencio({ unidade: "horas", direcao: "do_cliente" })).toBeNull();
+  });
+
+  it("trocar para horas apaga o dias herdado", () => {
+    expect(
+      recorteDoSilencio({ dias: 7, horas: 2, unidade: "horas", direcao: "do_cliente" }, "horas"),
+    ).toEqual({
+      horas: 2,
+      unidade: "horas",
+      direcao: "do_cliente",
     });
   });
 
@@ -52,7 +83,9 @@ describe("a configuração dos dois gatilhos", () => {
     // Funil em branco NÃO é linha torta: é "todos os funis" (`null`), que é o
     // que a varredura usa para não recortar.
     expect(configDaEtapaParada({ dias: 30, pipeline_id: " " })?.pipeline_id).toBeNull();
-    expect(configDaEtapaParada({ dias: 30, pipeline_id: "p1", proteger_pela_agenda: true })).toEqual({
+    expect(
+      configDaEtapaParada({ dias: 30, pipeline_id: "p1", proteger_pela_agenda: true }),
+    ).toEqual({
       dias: 30,
       pipeline_id: "p1",
       stage_id: null,
@@ -76,6 +109,17 @@ describe("a âncora do silêncio — quando o relógio zera", () => {
   it("cumpre N dias a partir da ÚLTIMA mensagem da direção", () => {
     expect(ancoraDoSilencio(dias(7), dias(30), AGORA, 7)).toBe(dias(7));
     expect(ancoraDoSilencio(dias(6.9), dias(30), AGORA, 7)).toBeNull();
+  });
+
+  it("duas horas: o relógio é o mesmo, a espera é menor", () => {
+    const ha2h = new Date(AGORA.getTime() - 2 * 3_600_000).toISOString();
+    const ha1h = new Date(AGORA.getTime() - 3_600_000).toISOString();
+    expect(ancoraDoSilencio(ha2h, dias(30), AGORA, 0, 2 * 3_600_000)).toBe(ha2h);
+    expect(ancoraDoSilencio(ha1h, dias(30), AGORA, 0, 2 * 3_600_000)).toBeNull();
+    const config = configDoSilencio({ horas: 2, unidade: "horas", direcao: "do_cliente" })!;
+    expect(ancoraDoSilencio(null, ha2h, AGORA, config.dias, duracaoDoSilencioMs(config))).toBe(
+      ha2h,
+    );
   });
 
   it("contato que nunca falou conta do NASCIMENTO do negócio", () => {

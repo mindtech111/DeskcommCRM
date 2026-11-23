@@ -1164,6 +1164,13 @@ export const AUDIT_ACTIONS = [
   // `removidas` no metadata) ou dentro do `template.deleted`, que são os atos
   // em que a imagem sai de fato.
   "template.media_added",
+  // Aviso interno da automação, no WhatsApp da equipe. O metadata leva o
+  // canal e o destino mascarado — nunca o texto, que pode citar o nome.
+  "automation.internal_whatsapp_sent",
+  "automation.internal_whatsapp_failed",
+  // O site avisou que a pessoa clicou para abrir o WhatsApp. Sem corpo:
+  // o fato é a tag, e o lead já está no funil.
+  "webhook.whatsapp_click",
 ] as const;
 
 /** Um código de auditoria. Derivado de `AUDIT_ACTIONS` — não redigite a lista. */

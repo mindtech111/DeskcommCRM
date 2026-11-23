@@ -92,6 +92,10 @@
   ],
   "cards": [
     {
+      "titulo": "Aviso interno e clique no WhatsApp",
+      "texto": "A ação send_internal_whatsapp sai do motor para o mesmo transporte e o mesmo pacing do aviso de caso, e o texto só leva primeiro nome, origem, assunto e o link do card. O POST /api/v1/webhooks/in/[token]/clique-whatsapp soma a tag whatsapp:clicou no lead daquela fonte e escreve a timeline. O gatilho lead.silent_for lê horas ou dias; a condição not_contains é o 'não tem a tag'."
+    },
+    {
       "titulo": "Por que o desenho não é gravado",
       "texto": "A automação já tem um formato só: uma fila. Guardar posição de caixa exigiria coluna nova (migration) para um dado que não muda o que roda. O designer reorganiza ao abrir, e as ligações viram a ordem da lista actions — que é a única coisa da forma que importa ao motor."
     },

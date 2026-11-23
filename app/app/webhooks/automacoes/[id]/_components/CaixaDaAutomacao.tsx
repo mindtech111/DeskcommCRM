@@ -15,7 +15,7 @@ import type { FollowupFlowPointerRow } from "@/hooks/followup/useFollowupFlows";
 import { useAssignableMembers } from "@/hooks/inbox/useAssignableMembers";
 import { usePipelineStages, usePipelines, useWebhookSources } from "@/hooks/webhooks/useWebhookSources";
 import type { PlanoDeTarefas } from "@/lib/tarefas/plano";
-import { CURATED_FIELDS, OP_LABELS, type Op } from "@/app/app/webhooks/_components/RuleEditor";
+import { CURATED_FIELDS, rotuloDoOperador, type Op } from "@/app/app/webhooks/_components/RuleEditor";
 import { ACTION_LABELS, TRIGGER_LABELS, type ActionType, type TriggerEvent } from "@/app/app/webhooks/_components/labels";
 
 import { VISUAL_DAS_CONDICOES, VISUAL_DO_GATILHO, visualDaAcao } from "./visual";
@@ -106,6 +106,10 @@ function DescricaoDaAcao({ tipo, config }: { tipo: string; config: Record<string
     }
     case "call_webhook":
       return <>{cfg(config, "url").trim() || t("Informe o endereço")}</>;
+    case "send_internal_whatsapp": {
+      const destino = cfg(config, "telefone_destino").trim();
+      return <>{destino || t("Número que recebe o aviso")}</>;
+    }
     case "create_task": {
       const titulo = cfg(config, "titulo").trim() || t("Sem título");
       const dias = typeof config.vence_em_dias === "number" ? config.vence_em_dias : 0;
@@ -131,7 +135,8 @@ function DescricaoDoGatilho({ dados }: { dados: Extract<DadosDaCaixa, { kind: "g
     const campo = funil ? camposDoFunil(funil.settings ?? null).find((c) => c.key === dados.tela.data.campo) : undefined;
     detalhe = campo ? `${campo.label} · N = ${dados.tela.data.dias}` : t("Escolha o funil e o campo de data");
   } else if (evento === GATILHO_SILENCIO || evento === GATILHO_ETAPA_PARADA) {
-    detalhe = `N = ${dados.tela.tempo.dias}`;
+    const emHoras = evento === GATILHO_SILENCIO && dados.tela.tempo.unidade === "horas";
+    detalhe = emHoras ? `N = ${dados.tela.tempo.dias} h` : `N = ${dados.tela.tempo.dias}`;
   }
   return <>{detalhe ? `${rotulo} · ${detalhe}` : rotulo}</>;
 }
@@ -146,7 +151,7 @@ function DescricaoDasCondicoes({ dados, evento }: { dados: Extract<DadosDaCaixa,
   const campos = CURATED_FIELDS[evento as TriggerEvent] ?? [];
   const primeira = completas[0]!;
   const campo = campos.find((c) => c.value === primeira.field);
-  const op = t(campo?.lista && primeira.op === "contains" ? "tem a tag" : OP_LABELS[primeira.op as Op]);
+  const op = t(rotuloDoOperador(primeira.op as Op, campo?.lista));
   const valor =
     campo?.kind === "stage" ? (quadro?.data?.stages.find((s) => s.id === primeira.value)?.name ?? primeira.value) : primeira.value;
   const frase = `${campo ? t(campo.label) : primeira.field} ${op} “${valor}”`;

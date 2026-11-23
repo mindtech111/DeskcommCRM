@@ -52,14 +52,28 @@ export const GATILHO_ETAPA_PARADA = "lead.stage_stale";
 export const DIRECOES_DO_SILENCIO = ["da_equipe", "do_cliente", "qualquer"] as const;
 export type DirecaoDoSilencio = (typeof DIRECOES_DO_SILENCIO)[number];
 
-/** Dez anos de silêncio é dedo no teclado, não regra. Abaixo de 1 dia é flood. */
+/** Dez anos de silêncio é dedo no teclado, não regra. Abaixo de 1 dia é flood
+ * no caminho de DIAS — o caminho de HORAS existe à parte, opt-in, com piso de
+ * 1 hora. Regra antiga só tem `dias` e continua sendo lida como dias. */
 export const DIAS_MIN = 1;
 export const DIAS_MAX = 3650;
 
+/** Piso de 1 hora. Acima de 30 dias em horas, a regra usa `dias`. */
+export const HORAS_MIN = 1;
+export const HORAS_MAX = 24 * 30;
+
+export type UnidadeDoSilencio = "dias" | "horas";
+
 /** O que a regra guarda em `automation_rules.trigger_config` — silêncio. */
 export interface ConfigDoSilencio {
-  /** Dias sem mensagem na direção escolhida. */
+  /**
+   * Dias sem mensagem, quando `unidade` é `dias`. Zero quando a regra é em
+   * horas — quem mede a espera é `duracaoDoSilencioMs`, não este campo sozinho.
+   */
   dias: number;
+  /** Horas sem mensagem, quando `unidade` é `horas`. Zero no caminho de dias. */
+  horas: number;
+  unidade: UnidadeDoSilencio;
   direcao: DirecaoDoSilencio;
   /** Recorte de funil. `null` = todos os funis da organização. */
   pipeline_id: string | null;
@@ -88,6 +102,13 @@ function booleano(v: unknown, padrao = false): boolean {
   return typeof v === "boolean" ? v : padrao;
 }
 
+function inteiroEntre(v: unknown, min: number, max: number): number | null {
+  if (!Number.isInteger(v)) return null;
+  const n = v as number;
+  if (n < min || n > max) return null;
+  return n;
+}
+
 /**
  * Lê a configuração do gatilho como ela veio do banco (jsonb) ou da tela.
  *
@@ -95,29 +116,92 @@ function booleano(v: unknown, padrao = false): boolean {
  * para todas as organizações, e uma regra torta não pode derrubar as irmãs —
  * ela simplesmente não casa. É também o que o schema da API usa para recusar,
  * na criação, o que o operador mandaria errado.
+ *
+ * Compatibilidade: regra que só tem `dias` (todas as que já existem) continua
+ * em dias, com o mesmo piso de 1. Horas é opt-in — `unidade: "horas"` ou, na
+ * ausência de `dias` válido, um `horas` inteiro. Os dois válidos sem unidade
+ * explícita ficam em dias: uma atualização não pode encurtar uma regra de 3
+ * dias para 3 horas.
  */
 export function configDoSilencio(bruto: unknown): ConfigDoSilencio | null {
   if (!bruto || typeof bruto !== "object" || Array.isArray(bruto)) return null;
-  const { dias, direcao, pipeline_id: pipelineId, proteger_pela_agenda: proteger } =
-    bruto as Record<string, unknown>;
-  if (!Number.isInteger(dias)) return null;
-  const n = dias as number;
-  if (n < DIAS_MIN || n > DIAS_MAX) return null;
-  if (typeof direcao !== "string" || !(DIRECOES_DO_SILENCIO as readonly string[]).includes(direcao)) {
+  const registro = bruto as Record<string, unknown>;
+  const {
+    dias,
+    horas,
+    unidade,
+    direcao,
+    pipeline_id: pipelineId,
+    proteger_pela_agenda: proteger,
+  } = registro;
+  if (
+    typeof direcao !== "string" ||
+    !(DIRECOES_DO_SILENCIO as readonly string[]).includes(direcao)
+  ) {
     return null;
   }
+  const diasOk = inteiroEntre(dias, DIAS_MIN, DIAS_MAX);
+  const horasOk = inteiroEntre(horas, HORAS_MIN, HORAS_MAX);
+  const emHoras =
+    unidade === "horas" || (unidade !== "dias" && horasOk !== null && diasOk === null);
+  if (emHoras) {
+    if (horasOk === null) return null;
+    return {
+      dias: 0,
+      horas: horasOk,
+      unidade: "horas",
+      direcao: direcao as DirecaoDoSilencio,
+      pipeline_id: textoOuNulo(pipelineId),
+      proteger_pela_agenda: booleano(proteger),
+    };
+  }
+  if (diasOk === null) return null;
   return {
-    dias: n,
+    dias: diasOk,
+    horas: 0,
+    unidade: "dias",
     direcao: direcao as DirecaoDoSilencio,
     pipeline_id: textoOuNulo(pipelineId),
     proteger_pela_agenda: booleano(proteger),
   };
 }
 
+/** A espera em milissegundos. Dias e horas passam pelo mesmo relógio. */
+export function duracaoDoSilencioMs(config: ConfigDoSilencio): number {
+  return config.unidade === "horas" ? config.horas * 3_600_000 : config.dias * 86_400_000;
+}
+
+/**
+ * O objeto que a tela manda gravar, já sem a unidade oposta.
+ *
+ * `configAoSalvarDaTela` herda as chaves antigas. Sem este corte, trocar uma
+ * regra de 7 dias para 2 horas deixaria `dias: 7` no jsonb, e a leitura
+ * (dias vencem quando os dois são válidos e não há `unidade: "horas"`) a
+ * manteria em 7 dias — a tela mostraria horas e a varredura contaria dias.
+ */
+export function recorteDoSilencio(
+  gravado: Record<string, unknown>,
+  unidade: UnidadeDoSilencio,
+): Record<string, unknown> {
+  const saida = { ...gravado };
+  if (unidade === "horas") {
+    delete saida.dias;
+    saida.unidade = "horas";
+  } else {
+    delete saida.horas;
+    delete saida.unidade;
+  }
+  return saida;
+}
+
 export function configDaEtapaParada(bruto: unknown): ConfigDaEtapaParada | null {
   if (!bruto || typeof bruto !== "object" || Array.isArray(bruto)) return null;
-  const { dias, pipeline_id: pipelineId, stage_id: stageId, proteger_pela_agenda: proteger } =
-    bruto as Record<string, unknown>;
+  const {
+    dias,
+    pipeline_id: pipelineId,
+    stage_id: stageId,
+    proteger_pela_agenda: proteger,
+  } = bruto as Record<string, unknown>;
   if (!Number.isInteger(dias)) return null;
   const n = dias as number;
   if (n < DIAS_MIN || n > DIAS_MAX) return null;
@@ -159,10 +243,12 @@ export function ancoraDoSilencio(
   nascidoEm: string,
   agora: Date,
   dias: number,
+  duracaoMs?: number,
 ): string | null {
   const referencia = Date.parse(ultimaMensagem ?? "") || Date.parse(nascidoEm);
   if (Number.isNaN(referencia)) return null;
-  if (agora.getTime() - referencia < dias * 86_400_000) return null;
+  const espera = duracaoMs ?? dias * 86_400_000;
+  if (agora.getTime() - referencia < espera) return null;
   return new Date(referencia).toISOString();
 }
 
@@ -207,5 +293,7 @@ export function naoDisparadosTemporais(
   jaEmitidos: ReadonlySet<string>,
   regraId: string,
 ): Array<{ leadId: string; ancora: string }> {
-  return candidatos.filter((c) => !jaEmitidos.has(chaveDeDisparoTemporal(regraId, c.leadId, c.ancora)));
+  return candidatos.filter(
+    (c) => !jaEmitidos.has(chaveDeDisparoTemporal(regraId, c.leadId, c.ancora)),
+  );
 }

@@ -19,7 +19,7 @@
 
 export interface CondicaoDeDemonstracao {
   field: string;
-  op: "eq" | "neq" | "contains";
+  op: "eq" | "neq" | "contains" | "not_contains";
   value: string;
 }
 
@@ -83,7 +83,10 @@ export function regrasDeDemonstracao(alvo: {
       trigger_event: "contact.birthday",
       conditions: [],
       actions: [
-        { type: "create_or_move_lead", config: { pipeline_id: alvo.pipelineId, stage_id: alvo.stageId } },
+        {
+          type: "create_or_move_lead",
+          config: { pipeline_id: alvo.pipelineId, stage_id: alvo.stageId },
+        },
       ],
     });
   }
