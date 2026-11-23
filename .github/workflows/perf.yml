@@ -1,10 +1,15 @@
 name: perf
 
+# `pnpm build` na main continua sendo o check `build-and-size`. Em pull_request
+# ele repetia um build que, quando o PR alcança imagem, o Dockerfile já faz —
+# e nos outros PRs não é o que a main integra. Sob pedido: workflow_dispatch.
+# Se a proteção do repositório exige este check em PR, ele fica pendente até
+# sair da lista de checks obrigatórios; isso é configuração do repositório,
+# fora deste arquivo.
 on:
-  pull_request:
-    branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
 
 # O GITHUB_TOKEN deste job serve a `actions/checkout` (clone) e a
 # `actions/setup-node` (manifest de `actions/node-versions`, repo público).

@@ -113,6 +113,13 @@ on:
 permissions:
   pull-requests: write
 
+# O gatilho é só `opened`, então duas rodadas do mesmo PR são um re-run. O
+# grupo evita dois comentários em paralelo. Por número de PR, como os jobs
+# pesados: reabrir um PR não colide com outro que aponte para a mesma ref.
+concurrency:
+  group: acolhida-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # `github.repository_owner` guarda o fork: este arquivo vai para a `main` de um
   # produto self-host, e o fork de cada pessoa herda o workflow. Sem a guarda, um

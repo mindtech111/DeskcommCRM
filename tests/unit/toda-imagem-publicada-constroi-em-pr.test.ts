@@ -92,9 +92,11 @@ function jobsDaMatriz(texto = yml): Combinacao[] {
     const eixo = /^ {8}([a-z_]+):\s*\[(.*)\]\s*$/.exec(l);
     const novoItem = /^ {10}- ([a-z_]+):\s*(.+?)\s*$/.exec(l);
     const campo = /^ {12}([a-z_]+):\s*(.+?)\s*$/.exec(l);
-    if (eixo?.[1] && eixo[2] !== undefined) eixos[eixo[1]] = eixo[2].split(",").map((v) => v.trim());
+    if (eixo?.[1] && eixo[2] !== undefined)
+      eixos[eixo[1]] = eixo[2].split(",").map((v) => v.trim());
     else if (novoItem?.[1] && novoItem[2]) itens.push({ [novoItem[1]]: novoItem[2] });
-    else if (campo?.[1] && campo[2] && itens.length > 0) Object.assign(itens[itens.length - 1] ?? {}, { [campo[1]]: campo[2] });
+    else if (campo?.[1] && campo[2] && itens.length > 0)
+      Object.assign(itens[itens.length - 1] ?? {}, { [campo[1]]: campo[2] });
   }
   const chaves = Object.keys(eixos);
   let combinacoes: Combinacao[] = chaves.length > 0 ? [{}] : [];
@@ -138,11 +140,50 @@ describe("toda imagem publicada é construída em PR", () => {
     ).toEqual([]);
   });
 
-  it("o agente de voz é iniciado nos dois runners nativos, não somente construído", () => {
-    const fundo = recorteDoJob(yml, "imagens-de-fundo-sobem").job;
-    expect(fundo).toContain("arch: amd64");
-    expect(fundo).toContain("arch: arm64");
-    expect(fundo).toContain("bash scripts/sonda-voice-agent-na-imagem.sh deskcomm-voice-agent:pr");
+  it("em pull_request o boot é só amd64; main e tag continuam nas duas, e o agente de voz é iniciado", () => {
+    // A perna arm64 no PR repetia o mesmo Dockerfile e o mesmo boot. Ela sai
+    // do PR e fica na main e na tag — é lá que o parque instala, e o
+    // `build-and-push` continua publicando as duas arquiteturas. O agente de
+    // voz segue sendo INICIADO (não só construído) em cada arquitetura que a
+    // lista manda: amd64 no PR, as duas fora dele.
+    const portao = recorteDoJob(yml, "a-tag-veio-da-main").job;
+    const linhasArches = portao.split("\n").filter((l) => l.includes("arches="));
+    const soAmd64 = linhasArches.filter((l) => !l.includes("arm64"));
+    const asDuas = linhasArches.filter((l) => l.includes("arm64"));
+    expect(soAmd64, "falta a lista só-amd64 do pull_request").toHaveLength(1);
+    expect(asDuas, "falta a lista amd64+arm64 de main e tag").toHaveLength(1);
+    const iIf = portao.indexOf('GITHUB_EVENT_NAME}" = "pull_request"');
+    const iSo = portao.indexOf(soAmd64[0]!);
+    const iDuas = portao.indexOf(asDuas[0]!);
+    expect(iIf, "a comparação de pull_request sumiu").toBeGreaterThan(-1);
+    expect(
+      iSo,
+      "a lista só-amd64 tem de estar no ramo do pull_request, antes da outra",
+    ).toBeGreaterThan(iIf);
+    expect(iDuas).toBeGreaterThan(iSo);
+
+    for (const nome of ["imagem-do-app-sobe", "imagens-de-fundo-sobem"]) {
+      const corpo = recorteDoJob(yml, nome).job;
+      expect(corpo, nome).toContain(
+        "include: ${{ fromJSON(needs.a-tag-veio-da-main.outputs.arches) }}",
+      );
+      // Matriz estática com `- arch: arm64` faria o include do GitHub somar a
+      // perna de volta no PR, mesmo com a lista dinâmica ao lado.
+      expect(corpo, nome).not.toMatch(/^\s+- arch:/m);
+    }
+
+    expect(recorteDoJob(yml, "imagens-de-fundo-sobem").job).toContain(
+      "bash scripts/sonda-voice-agent-na-imagem.sh deskcomm-voice-agent:pr",
+    );
+    expect(recorteDoJob(yml, "build-and-push").job).toMatch(/arch: \[amd64, arm64\]/);
+  });
+
+  it("o cache Docker grava só a imagem final — intermediárias enchem o teto de 10 GB", () => {
+    const modos = [...yml.matchAll(/type=gha,mode=(\w+)/g)].map((m) => m[1]);
+    expect(modos.length, "nenhum cache-to foi lido — a cerca cegou").toBeGreaterThanOrEqual(5);
+    expect(modos, "voltou o modo que grava todas as camadas intermediárias").toEqual(
+      modos.map(() => "min"),
+    );
   });
 
   it("cada índice montado é verificado antes de promover stable", () => {
@@ -152,13 +193,17 @@ describe("toda imagem publicada é construída em PR", () => {
     expect(juntar).toContain('manifesto_tem_plataforma "$tag" linux/amd64');
     expect(juntar).toContain('manifesto_tem_plataforma "$tag" linux/arm64');
     expect(promover).toContain("juntar-manifestos");
-    expect(promover).toContain('manifesto_tem_plataforma "${REGISTRY}/${dono}/${img}:${numero}" linux/arm64');
+    expect(promover).toContain(
+      'manifesto_tem_plataforma "${REGISTRY}/${dono}/${img}:${numero}" linux/arm64',
+    );
   });
 
   it("a matriz gera um job por receita E por arquitetura — nenhum item do include engole o anterior", () => {
     const jobs = jobsDaMatriz();
     const pares = new Set(jobs.map((j) => `${j.dockerfile ?? "?"} ${j.arch ?? "?"}`));
-    const esperado = receitasPublicadas().flatMap((r) => ["amd64", "arm64"].map((a) => `${r} ${a}`));
+    const esperado = receitasPublicadas().flatMap((r) =>
+      ["amd64", "arm64"].map((a) => `${r} ${a}`),
+    );
     expect(
       [...pares].sort(),
       "A matriz de build-and-push não gera todas as combinações imagem × arquitetura. Declare `name` e\n" +
@@ -174,7 +219,9 @@ describe("toda imagem publicada é construída em PR", () => {
       "$1          - name: deskcomm-inventada\n            dockerfile: Dockerfile.inventada\n",
     );
     const emPr = new Set(receitasConstruidasEmPr(sabotado));
-    expect(receitasPublicadas(sabotado).filter((r) => !emPr.has(r))).toContain("Dockerfile.inventada");
+    expect(receitasPublicadas(sabotado).filter((r) => !emPr.has(r))).toContain(
+      "Dockerfile.inventada",
+    );
   });
 
   it("o modelo da matriz enxerga o defeito do #1938 (controle negativo)", () => {
