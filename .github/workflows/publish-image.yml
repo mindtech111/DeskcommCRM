@@ -43,7 +43,9 @@ on:
   #
   # O gatilho de push da tag já cobre o fluxo real: a tag é sempre empurrada,
   # com ou sem release. Vigiado por tests/unit/packaging-artefato-do-cliente.test.ts.
-  # Em PR a imagem é CONSTRUÍDA e não publicada. Sem isto, nada no PR consegue
+  # Em PR a imagem é CONSTRUÍDA e não publicada, e só em amd64: a perna arm64
+  # repete o mesmo Dockerfile e o mesmo boot. Push na main e tag continuam
+  # amd64+arm64, as quatro imagens. Sem o build de PR, nada no PR consegue
   # revelar que a mudança quebra a imagem — foi assim que um bump de `next`
   # passou por `verify`, `build-and-size`, `invariants` e `e2e` (os quatro
   # obrigatórios) e derrubou o build do Dockerfile na `main`: o `next build`
@@ -100,7 +102,23 @@ jobs:
       pull-requests: read
     outputs:
       imagem: ${{ steps.alcance.outputs.imagem }}
+      # Em pull_request, só amd64. Fora dele (main, tag, dispatch), as duas.
+      # Os jobs que sobem a imagem leem esta lista — não uma matriz estática,
+      # senão o `include` do GitHub somaria a perna arm64 de volta no PR.
+      arches: ${{ steps.arches.outputs.arches }}
     steps:
+      - name: Quais arquiteturas este evento constrói?
+        id: arches
+        run: |
+          set -euo pipefail
+          # Falha fechada: o que não é pull_request constrói as duas. A main e
+          # a tag são o que o parque instala; um dispatch também.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            echo 'arches=[{"arch":"amd64","platform":"linux/amd64"}]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'arches=[{"arch":"amd64","platform":"linux/amd64"},{"arch":"arm64","platform":"linux/arm64"}]' >> "$GITHUB_OUTPUT"
+          fi
+
       # Só o script, não o repositório: o job é de segundos e segue assim.
       - uses: actions/checkout@v7
         if: github.event_name == 'pull_request'
@@ -291,10 +309,14 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             APP_VERSION=${{ steps.ver.outputs.value }}
-          # Cache por imagem: cada uma tem camadas diferentes, e um escopo único
-          # faria uma sobrescrever o cache da outra a cada run.
+          # Cache por imagem e arquitetura: cada uma tem camadas diferentes, e um
+          # escopo único faria uma sobrescrever o cache da outra a cada run.
+          # `mode=min` grava só as camadas da imagem final. Gravar todas as
+          # intermediárias enche o teto de 10 GB do Actions e, no teto, o cache
+          # é despejado em vez de reusado. Escopo por branch multiplicaria as
+          # entradas no mesmo teto.
           cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=min,scope=${{ matrix.name }}-${{ matrix.arch }}
           # Sem build-args de segredo: a imagem é genérica (NEXT_PUBLIC_* viram
           # placeholder; valores reais entram em runtime no VPS do usuário).
 
@@ -378,12 +400,9 @@ jobs:
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || (vars.EXECUTOR_PROPRIO == 'ligado' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'deskcomm-proprio' || 'ubuntu-latest') }}
     strategy:
       fail-fast: false
+      # Lista de `a-tag-veio-da-main`: amd64 no PR; amd64 e arm64 na main e na tag.
       matrix:
-        include:
-          - arch: amd64
-            platform: linux/amd64
-          - arch: arm64
-            platform: linux/arm64
+        include: ${{ fromJSON(needs.a-tag-veio-da-main.outputs.arches) }}
     concurrency:
       group: ${{ github.workflow }}-imagem-do-app-sobe-${{ matrix.arch }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.run_attempt != '1' && format('-reentrada-{0}', github.event.pull_request.head.sha) || '' }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
@@ -414,7 +433,7 @@ jobs:
           # Em PR o build-and-push não roda, então quem grava o cache do PR é
           # este job — sem isto o segundo push do mesmo PR reconstruiria do
           # zero. Fora de PR continua só lendo: quem grava é o build-and-push.
-          cache-to: ${{ github.event_name == 'pull_request' && format('type=gha,mode=max,scope=deskcommcrm-{0}', matrix.arch) || '' }}
+          cache-to: ${{ github.event_name == 'pull_request' && format('type=gha,mode=min,scope=deskcommcrm-{0}', matrix.arch) || '' }}
 
       - name: O container chega a servir?
         run: |
@@ -599,8 +618,9 @@ jobs:
   # O `if:` só pula quando o PR não alcança imagem nenhuma (`imagem=nao`, que
   # fora de pull_request é impossível); o `imagens-ok` aceita esse `skipped`
   # SÓ nessa condição e segue lendo qualquer outro `skipped` como reprovação.
-  # Em PR que alcança imagem ele roda e constrói as duas imagens de fundo com
-  # o mesmo escopo de cache do `build-and-push`; na tag, roda sempre.
+  # Em PR que alcança imagem ele roda e constrói as imagens de fundo em amd64
+  # (arm64 só na main e na tag), com o mesmo escopo de cache do `build-and-push`;
+  # na tag, roda sempre, nas duas arquiteturas.
   #
   # Ele entra POR BAIXO de `imagens-ok`, que é a fachada que a branch protection
   # já exige: nenhum check obrigatório novo — a proteção da main não passa a
@@ -615,12 +635,9 @@ jobs:
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || (vars.EXECUTOR_PROPRIO == 'ligado' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'deskcomm-proprio' || 'ubuntu-latest') }}
     strategy:
       fail-fast: false
+      # Lista de `a-tag-veio-da-main`: amd64 no PR; amd64 e arm64 na main e na tag.
       matrix:
-        include:
-          - arch: amd64
-            platform: linux/amd64
-          - arch: arm64
-            platform: linux/arm64
+        include: ${{ fromJSON(needs.a-tag-veio-da-main.outputs.arches) }}
     concurrency:
       group: ${{ github.workflow }}-imagens-de-fundo-sobem-${{ matrix.arch }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.run_attempt != '1' && format('-reentrada-{0}', github.event.pull_request.head.sha) || '' }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
@@ -653,7 +670,7 @@ jobs:
             type=gha,scope=deskcommcrm-worker-${{ matrix.arch }}
             type=gha,scope=deskcommcrm-worker
           # Mesma razão do job do app: em PR, quem grava o cache é este job.
-          cache-to: ${{ github.event_name == 'pull_request' && format('type=gha,mode=max,scope=deskcommcrm-worker-{0}', matrix.arch) || '' }}
+          cache-to: ${{ github.event_name == 'pull_request' && format('type=gha,mode=min,scope=deskcommcrm-worker-{0}', matrix.arch) || '' }}
 
       - name: Build local da imagem do scheduler (sem push)
         uses: docker/build-push-action@v7
@@ -667,7 +684,7 @@ jobs:
           cache-from: |
             type=gha,scope=deskcommcrm-scheduler-${{ matrix.arch }}
             type=gha,scope=deskcommcrm-scheduler
-          cache-to: ${{ github.event_name == 'pull_request' && format('type=gha,mode=max,scope=deskcommcrm-scheduler-{0}', matrix.arch) || '' }}
+          cache-to: ${{ github.event_name == 'pull_request' && format('type=gha,mode=min,scope=deskcommcrm-scheduler-{0}', matrix.arch) || '' }}
 
       # A QUARTA imagem (módulo opcional de telefonia, #677). Ela entrou na
       # `main` sem nunca ter sido construída: `build-and-push` tem a matriz com
@@ -689,7 +706,7 @@ jobs:
           cache-from: |
             type=gha,scope=deskcommcrm-voice-agent-${{ matrix.arch }}
             type=gha,scope=deskcommcrm-voice-agent
-          cache-to: ${{ github.event_name == 'pull_request' && format('type=gha,mode=max,scope=deskcommcrm-voice-agent-{0}', matrix.arch) || '' }}
+          cache-to: ${{ github.event_name == 'pull_request' && format('type=gha,mode=min,scope=deskcommcrm-voice-agent-{0}', matrix.arch) || '' }}
 
       - name: O agente de voz abre AudioSocket no runner nativo?
         run: bash scripts/sonda-voice-agent-na-imagem.sh deskcomm-voice-agent:pr
