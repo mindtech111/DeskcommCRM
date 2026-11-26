@@ -29,6 +29,14 @@ describe("mapInboundPayload", () => {
     expect(m.custom_fields).toEqual({ empresa: "ACME" });
     expect(m.source_metadata).toEqual({ utm_source: "instagram" });
   });
+  it("campaign e campanha viram utm_campaign, e a chave utm_campaign ganha", () => {
+    const alias = mapInboundPayload({ nome: "Ana", campanha: "inverno", utm_source: "revi" });
+    expect(alias.source_metadata).toEqual({ utm_campaign: "inverno", utm_source: "revi" });
+    expect(alias.custom_fields).toEqual({ campanha: "inverno" });
+    const explicita = mapInboundPayload({ campaign: "alias", utm_campaign: "oficial" });
+    expect(explicita.source_metadata.utm_campaign).toBe("oficial");
+    expect(explicita.custom_fields).toEqual({ campaign: "alias" });
+  });
   it("field_map custom tem precedência sobre defaults", () => {
     const m = mapInboundPayload({ contato: "Zé" }, { name: ["contato"] });
     expect(m.name).toBe("Zé");

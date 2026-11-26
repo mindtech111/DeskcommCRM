@@ -489,6 +489,22 @@ export const createWebhookSourceSchema = z.object({
     .optional(),
   form_fields: webhookFormFieldsSchema.optional(),
   secret: z.string().min(16).max(200).nullish(),
+  /**
+   * Reaproveitar o card aberto do contato em vez de abrir outro.
+   * Ausente na criação pela tela: o INSERT da aplicação grava true.
+   * O default da coluna é false, para INSERT que não conhece o campo
+   * (fixture, fonte antiga) continuar abrindo um card por envio.
+   */
+  reuse_open_lead: z.boolean().optional(),
+  /**
+   * Origem gravada no contato e no card NOVOS. Vazio ou ausente = `webhook`.
+   */
+  capture_source: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z][a-z0-9_]{0,31}$/)
+    .nullish(),
 });
 export const updateWebhookSourceSchema = createWebhookSourceSchema.partial().extend({
   name: z.string().trim().min(1).max(120).optional(),

@@ -55,6 +55,8 @@ const FONTE: WebhookSourceRow = {
   is_active: true,
   authorize_ai_on_capture: false,
   update_existing_lead_on_capture: false,
+  reuse_open_lead: false,
+  capture_source: null,
   kind: "lead_capture",
   last_received_at: null,
   default_pipeline_id: "p-1",

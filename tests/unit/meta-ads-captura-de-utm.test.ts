@@ -197,7 +197,7 @@ describe("casarClickRef (Meta)", () => {
 
     const casado = await casarClickRef(admin as never, ORG, "K7M2P9", CONTATO);
 
-    expect(casado).toEqual({ utm: { utm_campaign: "black-friday" } });
+    expect(casado).toEqual({ utm: { utm_campaign: "black-friday" }, tracking_link_id: null });
     // Organização no filtro é a lição da #236; `matched_at is null` é a trava
     // de consumo único.
     expect(filtros.organization_id).toBe(ORG);

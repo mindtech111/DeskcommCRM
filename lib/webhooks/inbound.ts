@@ -89,7 +89,21 @@ export function mapInboundPayload(
     const str =
       typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean" ? String(value) : null;
     if (str === null) continue; // objetos/arrays aninhados: descartados no v1
-    if (key.toLowerCase().startsWith("utm_")) source_metadata[key.toLowerCase()] = str;
+    const chave = key.toLowerCase();
+    // `campaign` e `campanha` também alimentam a atribuição. A resposta
+    // continua em `custom_fields`: um formulário já pode ter essa pergunta,
+    // e tirá-la daqui apagaria a resposta do card. `utm_campaign` explícita
+    // ganha quando as duas chegam juntas.
+    if (chave === "campaign" || chave === "campanha") {
+      if (!source_metadata.utm_campaign) source_metadata.utm_campaign = str;
+      custom_fields[key] = str;
+      continue;
+    }
+    if (chave === "utm_campaign") {
+      source_metadata.utm_campaign = str;
+      continue;
+    }
+    if (chave.startsWith("utm_")) source_metadata[chave] = str;
     else custom_fields[key] = str;
   }
 

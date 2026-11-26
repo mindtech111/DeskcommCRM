@@ -19,6 +19,12 @@ import { logger } from "@/lib/logger";
 export interface ClickRefDaPaginaCasado {
   /** Só chaves de `CHAVES_DE_UTM`, como a rota as normalizou antes de gravar. */
   utm: Record<string, string>;
+  /**
+   * O link rastreável que gerou o clique, quando o ref nasceu em
+   * `/api/v1/rastreio/<id>`. `null` no endereço antigo de captura de UTM,
+   * que não tem link nomeado.
+   */
+  tracking_link_id: string | null;
 }
 
 /**
@@ -42,7 +48,7 @@ export async function casarClickRef(
     .eq("organization_id", organizationId)
     .eq("token", token)
     .is("matched_at", null)
-    .select("utm")
+    .select("utm, tracking_link_id")
     .maybeSingle();
 
   if (error) {
@@ -55,9 +61,10 @@ export async function casarClickRef(
   }
   if (!data) return null;
 
-  const utm = (data as { utm: Record<string, string> | null }).utm;
+  const linha = data as { utm: Record<string, string> | null; tracking_link_id?: string | null };
+  const utm = linha.utm;
   // A coluna é `not null` com `check (utm <> '{}')`, então isto é defesa de
   // borda, não caso esperado: linha sem UTM não teria o que estampar.
   if (!utm || Object.keys(utm).length === 0) return null;
-  return { utm };
+  return { utm, tracking_link_id: linha.tracking_link_id ?? null };
 }

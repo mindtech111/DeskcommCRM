@@ -134,6 +134,10 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
     atualizacaoDeCard?.id === source.id
       ? atualizacaoDeCard.ativa
       : source.update_existing_lead_on_capture;
+  const [reusoDeCard, setReusoDeCard] = React.useState<{ id: string; ativa: boolean } | null>(null);
+  const reusaCard = reusoDeCard?.id === source.id ? reusoDeCard.ativa : source.reuse_open_lead === true;
+  const [origemSalva, setOrigemSalva] = React.useState(source.capture_source ?? "");
+  const [origemRascunho, setOrigemRascunho] = React.useState(source.capture_source ?? "");
   const [testing, setTesting] = React.useState(false);
   const [testOk, setTestOk] = React.useState(false);
   const [formFields, setFormFields] = React.useState<WebhookFormField[]>(source.form_fields ?? []);
@@ -193,7 +197,10 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
     setNomeFonteSalvo(source.name);
     setNomeFonteRascunho(source.name);
     setEditandoNome(false);
-  }, [source.id, source.name]);
+    const origem = source.capture_source ?? "";
+    setOrigemSalva(origem);
+    setOrigemRascunho(origem);
+  }, [source.id, source.name, source.capture_source]);
 
   const salvarNomeFonte = async () => {
     const nome = nomeFonteRascunho.trim();
@@ -416,6 +423,54 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
             {!temAssinatura && <p className="text-sm text-muted-foreground">
               {t("Configure a assinatura da fonte antes de deixar a integração atualizar o card. Para remover a assinatura, desligue primeiro a atualização pelo external_id.")}
             </p>}
+          </section>
+
+          <section className="space-y-2 rounded-sm border border-border p-3">
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="reuse-open-lead" className="block text-sm font-medium text-text">
+                {t("Reaproveitar o card aberto deste contato")}
+              </label>
+              <Switch id="reuse-open-lead" checked={reusaCard}
+                disabled={!podeGerirWebhooks || update.isPending}
+                onCheckedChange={(ativa) => update.mutate(
+                  { id: source.id, reuse_open_lead: ativa },
+                  { onSuccess: (res) => setReusoDeCard({ id: source.id, ativa: res.data.reuse_open_lead === true }) },
+                )} />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {t("Ligado, um envio de alguém que já tem card aberto não abre outro: junta as etiquetas, guarda a origem da campanha e anota na linha do tempo. Desligado, cada envio abre um card, que é o que as fontes antigas continuam fazendo.")}
+            </p>
+            <label htmlFor="capture-source" className="block text-sm font-medium text-text">
+              {t("Origem gravada no card novo")}
+            </label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="capture-source"
+                value={origemRascunho}
+                maxLength={32}
+                placeholder="webhook"
+                disabled={!podeGerirWebhooks || update.isPending}
+                onChange={(evento) => setOrigemRascunho(evento.target.value)}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={!podeGerirWebhooks || update.isPending || origemRascunho.trim() === origemSalva}
+                onClick={() => update.mutate(
+                  { id: source.id, capture_source: origemRascunho.trim() === "" ? null : origemRascunho.trim().toLowerCase() },
+                  { onSuccess: (res) => {
+                    const gravada = res.data.capture_source ?? "";
+                    setOrigemSalva(gravada);
+                    setOrigemRascunho(gravada);
+                  } },
+                )}
+              >
+                {t("Salvar origem")}
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {t("Vazio não grava nome extra. Um valor como revi fica anotado no card novo, e a origem do card continua webhook — o consentimento da IA e o envio repetido dependem dela. Não muda um card que já existia.")}
+            </p>
           </section>
 
           <section className="space-y-2">

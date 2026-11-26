@@ -145,6 +145,9 @@ const admin = {
           order(_coluna: string, _opcoes?: unknown) {
             return consulta;
           },
+          not() {
+            return consulta;
+          },
           limit(_n: number) {
             return consulta;
           },
@@ -760,10 +763,10 @@ describe("a origem da página que veio no texto", () => {
  * guardadas no servidor quando a rota de captura recebeu o clique
  * (`app/api/v1/anuncios/meta/[org]/route.ts`).
  *
- * O que estes casos vigiam não é o casamento em si — é que o ref passa pelas
- * MESMAS guardas do `[dk1:]`, e que o clique só é CONSUMIDO quando vai virar
- * atribuição de verdade. Consumir fora da primeira mensagem queimaria o ref
- * sem estampar ninguém, e o dono do clique nunca saberia por quê.
+ * O `[dk1:]` continua valendo só na primeira mensagem. O `[ref:]` não: um
+ * ref ainda não consumido estampa o último toque em qualquer mensagem, e o
+ * primeiro toque (a função do banco) só roda na primeira. O clique segue
+ * sendo consumido uma vez — `matched_at` continua no filtro.
  */
 describe("o ref curto da página que veio no texto", () => {
   const REF = "[ref:K7M2P9]";
@@ -790,13 +793,15 @@ describe("o ref curto da página que veio no texto", () => {
     expect(filtrosDoRef.matched_at).toBeNull();
   });
 
-  it("fora da primeira mensagem o ref NÃO é consumido", async () => {
+  it("fora da primeira mensagem o ref é consumido e o primeiro toque fica", async () => {
     historicoDoContato = { id: "outra-msg", count: 4 };
 
     await rodar({ texto: `oi ${REF}` });
 
-    expect(sequencia).not.toContain("update:meta_ads_click_refs");
+    expect(sequencia).toContain("update:meta_ads_click_refs");
+    expect(filtrosDoRef.matched_at).toBeNull();
     expect(nomesDeRpc()).not.toContain("fn_estampar_atribuicao_de_anuncio");
+    expect(garantirLeadDaConversa).toHaveBeenCalled();
   });
 
   it("ref que não casa não estampa nada e a ingestão segue", async () => {
