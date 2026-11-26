@@ -14,6 +14,10 @@ export interface WebhookSourceRow {
   authorize_ai_on_capture: boolean;
   /** Opção do #2316: atualizar o card quando o envio repete o external_id. */
   update_existing_lead_on_capture: boolean;
+  /** Reaproveita o card aberto. Fonte nova vem ligada; fonte antiga, desligada. */
+  reuse_open_lead: boolean;
+  /** Origem do card novo. Vazio grava `webhook`. */
+  capture_source: string | null;
   kind: string;
   last_received_at: string | null;
   default_pipeline_id: string;
@@ -96,6 +100,8 @@ export function useUpdateWebhookSource() {
       is_active?: boolean;
       authorize_ai_on_capture?: boolean;
       update_existing_lead_on_capture?: boolean;
+      reuse_open_lead?: boolean;
+      capture_source?: string | null;
       secret?: string | null;
       form_fields?: WebhookFormField[];
     }) => apiClient.patch<{ data: WebhookSourceRow }>(`/api/v1/webhook-sources/${id}`, patch),

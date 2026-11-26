@@ -122,6 +122,15 @@ export const DICIONARIO: Traducoes = {
   "O integrador deve enviar external_id, ai_service_consent: true, submission_status: completed e ai_service_consent_version com a versão do aviso aceito. Aceitar apenas a política de privacidade não autoriza a IA. Sem external_id, o envio não concede nem renova a autorização; reenviar com o mesmo external_id não libera de novo. Uma recusa (false) num envio completo e válido revoga, mesmo sem external_id.": { es: "El integrador debe enviar external_id, ai_service_consent: true, submission_status: completed y ai_service_consent_version con la versión del aviso aceptado. Aceptar solo la política de privacidad no autoriza la IA. Sin external_id, el envío no concede ni renueva la autorización; reenviar con el mismo external_id no vuelve a autorizar. Un rechazo (false) en un envío completo y válido revoca, incluso sin external_id." },
   // Atualização do card pela integração (#2316) — a opção irmã da de IA.
   "Atualizar o card quando o envio repete o mesmo cadastro": { es: "Actualizar la tarjeta cuando el envío repite el mismo registro" },
+  "Reaproveitar o card aberto deste contato": { es: "Reutilizar la tarjeta abierta de este contacto" },
+  "Ligado, um envio de alguém que já tem card aberto não abre outro: junta as etiquetas, guarda a origem da campanha e anota na linha do tempo. Desligado, cada envio abre um card, que é o que as fontes antigas continuam fazendo.": {
+    es: "Activado, un envío de alguien que ya tiene una tarjeta abierta no abre otra: junta las etiquetas, guarda el origen de la campaña y anota en la línea de tiempo. Desactivado, cada envío abre una tarjeta, que es lo que siguen haciendo las fuentes antiguas.",
+  },
+  "Origem gravada no card novo": { es: "Origen guardado en la tarjeta nueva" },
+  "Vazio grava webhook. Um valor como revi marca o card que esta fonte criar. Não muda a origem de um card que já existia.": {
+    es: "Vacío guarda webhook. Un valor como revi marca la tarjeta que esta fuente cree. No cambia el origen de una tarjeta que ya existía.",
+  },
+  "Salvar origem": { es: "Guardar origen" },
   "Só para integrações entre sistemas: ligado, um envio com o mesmo external_id que traga dado novo atualiza o card desta fonte — os campos, o título e a etapa pedida em stage, sempre para a frente. Desligado, o padrão, o envio repetido continua sendo reenvio e nada no card muda, nem o que a equipe corrigiu à mão.": { es: "Solo para integraciones entre sistemas: activado, un envío con el mismo external_id que traiga datos nuevos actualiza la tarjeta de esta fuente — los campos, el título y la etapa pedida en stage, siempre hacia adelante. Desactivado, lo predeterminado, el envío repetido sigue siendo un reenvío y nada en la tarjeta cambia, ni lo que el equipo corrigió a mano." },
   "Configure a assinatura da fonte antes de deixar a integração atualizar o card. Para remover a assinatura, desligue primeiro a atualização pelo external_id.": { es: "Configura la firma de la fuente antes de permitir que la integración actualice la tarjeta. Para quitar la firma, desactiva primero la actualización por external_id." },
 

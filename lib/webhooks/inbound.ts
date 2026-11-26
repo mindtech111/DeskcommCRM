@@ -89,7 +89,14 @@ export function mapInboundPayload(
     const str =
       typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean" ? String(value) : null;
     if (str === null) continue; // objetos/arrays aninhados: descartados no v1
-    if (key.toLowerCase().startsWith("utm_")) source_metadata[key.toLowerCase()] = str;
+    const chave = key.toLowerCase();
+    // `campaign` e `campanha` são o mesmo fato que `utm_campaign`. A chave
+    // explícita ganha: um envio com as duas não deixa o alias apagar a UTM.
+    if (chave === "utm_campaign" || chave === "campaign" || chave === "campanha") {
+      if (chave === "utm_campaign" || !source_metadata.utm_campaign) source_metadata.utm_campaign = str;
+      continue;
+    }
+    if (chave.startsWith("utm_")) source_metadata[chave] = str;
     else custom_fields[key] = str;
   }
 

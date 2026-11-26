@@ -489,6 +489,21 @@ export const createWebhookSourceSchema = z.object({
     .optional(),
   form_fields: webhookFormFieldsSchema.optional(),
   secret: z.string().min(16).max(200).nullish(),
+  /**
+   * Reaproveitar o card aberto do contato em vez de abrir outro.
+   * Ausente na criação: a coluna nasce true para fonte nova (migration 0691).
+   * Fonte que já existia ficou false — ligar é decisão de quem administra.
+   */
+  reuse_open_lead: z.boolean().optional(),
+  /**
+   * Origem gravada no contato e no card NOVOS. Vazio ou ausente = `webhook`.
+   */
+  capture_source: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z][a-z0-9_]{0,31}$/)
+    .nullish(),
 });
 export const updateWebhookSourceSchema = createWebhookSourceSchema.partial().extend({
   name: z.string().trim().min(1).max(120).optional(),

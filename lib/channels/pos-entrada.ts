@@ -41,7 +41,9 @@
 import { audit } from "@/lib/audit";
 import { idsDosCanaisDesativados } from "@/lib/channels/desativado";
 import { encerraDemanda } from "@/lib/leads/encerramento";
+import { gravarToqueNoContato, gravarToqueNoLeadAberto } from "@/lib/leads/aplicar-toque-de-campanha";
 import { garantirLeadDaConversa } from "@/lib/leads/nascimento-do-lead";
+import { montarToque, type ToqueDeCampanha } from "@/lib/leads/toque-de-campanha";
 import type { CanonicalLostReason } from "@/lib/schemas/leads";
 import {
   ehAPrimeiraMensagemDoContato,
@@ -50,6 +52,7 @@ import {
 } from "@/lib/leads/origem-do-site";
 import { logger } from "@/lib/logger";
 import { PADRAO_DO_REF } from "@/lib/plataformas-de-anuncio/captura-de-clique";
+import { lerRefDeLinkJaCasado } from "@/lib/plataformas-de-anuncio/google/captura-de-clique";
 import { casarClickRef } from "@/lib/plataformas-de-anuncio/meta/captura-de-clique";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { ehPedidoDeOptOut } from "@/lib/opt-out/deteccao";
@@ -168,8 +171,16 @@ export async function aplicarEfeitosPosEntrada(
     });
     return;
   }
-  await guardarOrigemDaPagina(admin, entrada);
+  const toque = await guardarOrigemDaPagina(admin, entrada);
   await abrirDemanda(admin, entrada);
+  if (toque) {
+    await gravarToqueNoLeadAberto(admin, {
+      organizationId: entrada.organizationId,
+      contactId: entrada.contactId,
+      toque: toque.toque,
+      utm: toque.utm,
+    });
+  }
   await avaliarCampanha(admin, entrada);
   const sinal = {
     organizationId: entrada.organizationId,
@@ -520,11 +531,16 @@ async function pedirDespachoDoAgente(admin: Admin, entrada: EntradaDeMensagem): 
  * depois deixaria o card com a origem de sempre e o dado só no contato — que é
  * exatamente onde ninguém olha.
  *
- * Duas condições da decisão da #924 estão aqui, e nenhuma delas é re-medida:
- * (a) a origem vale SÓ na PRIMEIRA mensagem do contato — um link encaminhado
- * adiante não vira atribuição de quem o recebeu (o filtro roda no banco, em
- * `ehAPrimeiraMensagemDoContato`); (b) o PRIMEIRO TOQUE nunca é sobrescrito, e
- * isso continua sendo da `fn_estampar_atribuicao_de_anuncio`, não deste arquivo.
+ * Duas condições da decisão da #924 continuam no `[dk1:]`:
+ * (a) a origem auto-contida vale SÓ na PRIMEIRA mensagem do contato — um link
+ * encaminhado adiante não vira atribuição de quem o recebeu (o filtro roda no
+ * banco, em `ehAPrimeiraMensagemDoContato`); (b) o PRIMEIRO TOQUE nunca é
+ * sobrescrito, e isso continua sendo da `fn_estampar_atribuicao_de_anuncio`.
+ *
+ * O `[ref:]` é diferente desde o toque de campanha em contato que já existe:
+ * um ref VÁLIDO e ainda NÃO CONSUMIDO estampa o último toque em qualquer
+ * mensagem. O consumo único (`matched_at`) continua sendo o que impede o
+ * texto encaminhado de atribuir outra pessoa. O `source` original não muda.
  *
  * Falha aqui é LOG, nunca exceção: a mensagem do cliente JÁ está gravada, e
  * devolver erro ao provider faria ele reenviar a mensagem. Trocar um rótulo de
@@ -540,68 +556,99 @@ async function pedirDespachoDoAgente(admin: Admin, entrada: EntradaDeMensagem): 
  *
  * O `[dk1:]` é tentado PRIMEIRO porque é o que não custa consulta nenhuma: ele
  * se resolve no texto. O ref só vai ao banco quando o texto não trouxe UTM.
+ *
+ * Devolve o toque quando um ref foi consumido (ou já era deste contato), para
+ * o card — que pode nascer no passo seguinte — receber as mesmas etiquetas.
  */
-async function guardarOrigemDaPagina(admin: Admin, entrada: EntradaDeMensagem): Promise<void> {
+async function guardarOrigemDaPagina(
+  admin: Admin,
+  entrada: EntradaDeMensagem,
+): Promise<{ toque: ToqueDeCampanha; utm: Record<string, string> } | null> {
   const achada = extrairOrigemDaPagina(entrada.texto);
-  // O ref não é lido no banco aqui: a leitura CONSOME o clique, e consumir um
-  // clique fora da primeira mensagem o queimaria sem estampar ninguém.
+  // O ref não é lido no banco quando o texto já traz o `[dk1:]`: consumir os
+  // dois atribuiria a mesma mensagem duas vezes.
   const ref = achada ? null : (PADRAO_DO_REF.exec(entrada.texto ?? "")?.[1] ?? null);
   // O caso comum: quase nenhuma mensagem traz código de página nem ref.
-  if (!achada && !ref) return;
+  if (!achada && !ref) return null;
 
   try {
-    // A consulta vem ANTES de qualquer escrita, e DENTRO do try: falha de
-    // leitura não pode virar estampa. O `estampar` só roda depois de a
-    // primeira mensagem estar confirmada.
-    if (
-      !(await ehAPrimeiraMensagemDoContato(
-        admin,
-        entrada.organizationId,
-        entrada.contactId,
-        entrada.messageId,
-      ))
-    ) {
-      logger.info("pos-entrada: código de origem fora da primeira mensagem (ignorado)", {
-        contactId: entrada.contactId,
-        messageId: entrada.messageId,
-      });
-      return;
+    const primeira = await ehAPrimeiraMensagemDoContato(
+      admin,
+      entrada.organizationId,
+      entrada.contactId,
+      entrada.messageId,
+    );
+
+    if (achada) {
+      if (!primeira) {
+        logger.info("pos-entrada: código de origem fora da primeira mensagem (ignorado)", {
+          contactId: entrada.contactId,
+          messageId: entrada.messageId,
+        });
+        return null;
+      }
+      const origem = { utm: achada.utm, capturadaEm: new Date().toISOString() };
+      const gravou = await estamparOrigemDaPagina(admin, entrada.organizationId, entrada.contactId, origem);
+      if (!gravou) {
+        logger.warn("pos-entrada: origem da página NÃO gravada (a mensagem entra assim mesmo)", {
+          contactId: entrada.contactId,
+          utm_source: origem.utm.utm_source ?? null,
+        });
+      }
+      return null;
     }
 
-    const utm = achada
-      ? achada.utm
-      : ref
-        ? (await casarClickRef(admin, entrada.organizationId, ref, entrada.contactId))?.utm
-        : undefined;
+    const casado = await casarClickRef(admin, entrada.organizationId, ref!, entrada.contactId);
+    const jaDesteContato = casado
+      ? null
+      : await lerRefDeLinkJaCasado(admin, entrada.organizationId, ref!, entrada.contactId);
+    const utm = casado?.utm ?? jaDesteContato?.utm;
+    const trackingLinkId = casado?.tracking_link_id ?? jaDesteContato?.tracking_link_id ?? null;
     if (!utm) {
-      // Ref que não casa é sinal NOSSO que não fechou: já consumido, de outra
-      // organização, ou de um clique que nunca foi gravado. Não é tráfego
-      // orgânico, então vale um aviso — ao contrário da mensagem sem marcador
-      // nenhum, que nem chega aqui.
-      logger.warn("pos-entrada: ref da página não casou (a mensagem entra assim mesmo)", {
-        contactId: entrada.contactId,
-      });
-      return;
+      // Ref que não casa é sinal NOSSO que não fechou: já consumido por OUTRA
+      // pessoa, de outra organização, ou de um clique que nunca foi gravado.
+      if (primeira) {
+        logger.warn("pos-entrada: ref da página não casou (a mensagem entra assim mesmo)", {
+          contactId: entrada.contactId,
+        });
+      }
+      return null;
     }
 
-    const origem = { utm, capturadaEm: new Date().toISOString() };
-
-    const gravou = await estamparOrigemDaPagina(admin, entrada.organizationId, entrada.contactId, origem);
-    if (!gravou) {
-      logger.warn("pos-entrada: origem da página NÃO gravada (a mensagem entra assim mesmo)", {
-        contactId: entrada.contactId,
-        utm_source: origem.utm.utm_source ?? null,
+    const capturadaEm = new Date().toISOString();
+    // Primeiro toque só na primeira mensagem, e a função do banco recusa
+    // reescrever quem já tem `ad_platform`. Mensagem seguinte não chama isto:
+    // contato antigo sem anúncio não pode virar "site" por um clique tardio.
+    if (primeira && casado) {
+      const gravou = await estamparOrigemDaPagina(admin, entrada.organizationId, entrada.contactId, {
+        utm,
+        capturadaEm,
       });
-      return;
+      if (!gravou) {
+        logger.warn("pos-entrada: origem da página NÃO gravada (a mensagem entra assim mesmo)", {
+          contactId: entrada.contactId,
+          utm_source: utm.utm_source ?? null,
+        });
+      }
     }
-    logger.info("pos-entrada: origem da página gravada", {
+
+    const toque = montarToque({ utm, trackingLinkId, ref: ref!, at: capturadaEm });
+    await gravarToqueNoContato(admin, {
+      organizationId: entrada.organizationId,
       contactId: entrada.contactId,
-      utm: Object.keys(origem.utm),
+      toque,
+      utm,
     });
+    logger.info("pos-entrada: toque de campanha gravado", {
+      contactId: entrada.contactId,
+      utm: Object.keys(utm),
+    });
+    return { toque, utm };
   } catch (erro) {
     logger.error("pos-entrada: origem da página falhou (a mensagem entra assim mesmo)", {
       contactId: entrada.contactId,
       error: erro instanceof Error ? erro.message.slice(0, 160) : String(erro).slice(0, 160),
     });
+    return null;
   }
 }

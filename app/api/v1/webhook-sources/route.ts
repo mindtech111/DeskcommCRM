@@ -109,6 +109,8 @@ export async function POST(req: NextRequest): Promise<Response> {
       field_map: parsed.data.field_map,
       form_fields: parsed.data.form_fields,
       secret_encrypted: secretEncrypted,
+      reuse_open_lead: parsed.data.reuse_open_lead,
+      capture_source: parsed.data.capture_source ?? null,
     });
     return ok(criada, { requestId, status: 201 });
   } catch (err) {

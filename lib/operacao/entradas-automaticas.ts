@@ -45,6 +45,10 @@ export interface FonteVisivel {
   authorize_ai_on_capture: boolean;
   /** Opção do #2316 — o que a tela usa para pintar o switch da fonte. */
   update_existing_lead_on_capture: boolean;
+  /** Reaproveita o card aberto do contato. Fonte nova nasce ligada. */
+  reuse_open_lead: boolean;
+  /** Origem do card novo. `null` grava `webhook`. */
+  capture_source: string | null;
   kind: string;
   path_token: string;
   default_pipeline_id: string;
@@ -70,7 +74,7 @@ export interface FonteVisivel {
 const COLUNAS =
   "id, organization_id, name, is_active, kind, path_token, default_pipeline_id, default_stage_id, " +
   "redirect_to, field_map, form_fields, last_received_at, secret_encrypted, created_at, updated_at, " +
-  "last_change_actor_kind, last_change_at, authorize_ai_on_capture, update_existing_lead_on_capture";
+  "last_change_actor_kind, last_change_at, authorize_ai_on_capture, update_existing_lead_on_capture, reuse_open_lead, capture_source";
 
 function semSegredo(linha: Record<string, unknown>): FonteVisivel {
   const { secret_encrypted, ...resto } = linha;
@@ -78,6 +82,8 @@ function semSegredo(linha: Record<string, unknown>): FonteVisivel {
     ...(resto as unknown as Omit<FonteVisivel, "has_secret" | "form_fields">),
     form_fields: Array.isArray(resto.form_fields) ? (resto.form_fields as WebhookFormField[]) : [],
     has_secret: secret_encrypted !== null,
+    reuse_open_lead: resto.reuse_open_lead === true,
+    capture_source: typeof resto.capture_source === "string" ? resto.capture_source : null,
   };
 }
 
@@ -191,6 +197,9 @@ export interface NovaEntradaAutomatica {
   form_fields?: WebhookFormField[];
   /** Já CIFRADO pelo chamador. A operação nunca vê plaintext de segredo. */
   secret_encrypted?: string | null;
+  /** Ausente = ligada. Fonte nova não abre um segundo card se a pessoa já tem um. */
+  reuse_open_lead?: boolean;
+  capture_source?: string | null;
 }
 
 export async function criarEntradaAutomatica(
@@ -221,6 +230,8 @@ export async function criarEntradaAutomatica(
       field_map: input.field_map ?? {},
       form_fields: input.form_fields ?? [],
       redirect_to: input.redirect_to ?? null,
+      reuse_open_lead: input.reuse_open_lead ?? true,
+      capture_source: input.capture_source ?? null,
       ...autoriaDaMudanca(deps.actor),
     })
     .select(COLUNAS)

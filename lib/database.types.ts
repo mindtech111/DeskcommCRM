@@ -9958,6 +9958,8 @@ export type Database = {
           redirect_to: string | null
           secret_encrypted: string | null
           update_existing_lead_on_capture: boolean
+          reuse_open_lead: boolean
+          capture_source: string | null
           updated_at: string
         }
         Insert: {
@@ -9980,6 +9982,8 @@ export type Database = {
           redirect_to?: string | null
           secret_encrypted?: string | null
           update_existing_lead_on_capture?: boolean
+          reuse_open_lead?: boolean
+          capture_source?: string | null
           updated_at?: string
         }
         Update: {
@@ -10002,6 +10006,8 @@ export type Database = {
           redirect_to?: string | null
           secret_encrypted?: string | null
           update_existing_lead_on_capture?: boolean
+          reuse_open_lead?: boolean
+          capture_source?: string | null
           updated_at?: string
         }
         Relationships: [

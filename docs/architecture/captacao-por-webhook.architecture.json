@@ -385,6 +385,10 @@
       "texto": "O rótulo que o Elementor manda ('Selecione o serviço…') NÃO é guardado: webhook_lead_captures não tem coluna para isso e acrescentar uma exige migration (migration + baseline + MANIFEST) com teste de banco. A tela sugere o rótulo a partir do nome do campo e o tipo a partir do valor."
     },
     {
+      "titulo": "Card aberto é reaproveitado quando a fonte pede",
+      "texto": "webhook_sources.reuse_open_lead nasce ligado nas fontes novas e desligado nas que já existiam. Ligado, o envio que reencontra o contato pelo telefone funde etiquetas e utm no card aberto, anota a timeline (emitLeadActivity) e emite lead.updated — não abre outro card. O external_id repetido continua idempotente. capture_source, quando preenchido, é a origem só do cadastro novo (revi, por exemplo); o card que já existia não troca de source. A tela é o painel da fonte em Webhooks."
+    },
+    {
       "titulo": "Limites conhecidos",
       "texto": "Os botões de campo na ação de WhatsApp usam o funil PADRÃO da organização, não o funil específico da regra. Variável ausente vira vazio (comportamento que já existia). O mapeador de chaves (resolveField) lê o protótipo: {{constructor}} já imprimia 'function Object()' antes desta mudança e continua imprimindo."
     }

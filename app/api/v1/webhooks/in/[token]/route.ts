@@ -22,6 +22,13 @@ import { emitLeadActivity } from "@/lib/leads/activity-emitter";
 import { classificarLeadInicial, type ResultadoClassificacaoInicial } from "@/lib/leads/classificacao-inicial";
 import type { CreateLeadInput } from "@/lib/schemas";
 import { mapInboundPayload, verifyInboundSignature, type FieldMap } from "@/lib/webhooks/inbound";
+import {
+  cardAbertoDoContato,
+  etiquetasDoEnvio,
+  etiquetasDoPayload,
+  origemDaCaptacao as origemGravadaDaFonte,
+  reusarCardAberto,
+} from "@/lib/webhooks/reusar-card-aberto";
 import { HEADER_ASSINATURA_DE_ENTRADA } from "@/lib/webhooks/assinatura";
 import { encontrarContatoPorTelefoneComNome } from "@/lib/channels/contato-por-telefone";
 import {
@@ -179,7 +186,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
   const admin = createAdminClient();
   const { data: source, error: srcErr } = await admin
     .from("webhook_sources")
-    .select("id, name, organization_id, secret_encrypted, default_pipeline_id, default_stage_id, field_map, form_fields, redirect_to, is_active, authorize_ai_on_capture, update_existing_lead_on_capture")
+    .select("id, name, organization_id, secret_encrypted, default_pipeline_id, default_stage_id, field_map, form_fields, redirect_to, is_active, authorize_ai_on_capture, update_existing_lead_on_capture, reuse_open_lead, capture_source")
     .eq("path_token", token)
     .maybeSingle();
   if (srcErr) return fail("internal_error", srcErr.message, 500, { requestId });
@@ -372,7 +379,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
       .from("crm_leads")
       .select("id, contact_id, webhook_source_id, title, custom_fields, pipeline_id, stage_id")
       .eq("organization_id", source.organization_id)
-      .eq("source", "webhook")
+      .eq("source", origemGravadaDaFonte(source))
       .eq("external_id", externalId)
       .maybeSingle();
     if (!data) return null;
@@ -699,7 +706,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
           name: mapped.name ?? mapped.phone,
           phone_number: mapped.phone,
           email: mapped.email,
-          source: "webhook",
+          source: origemGravadaDaFonte(source),
           source_metadata: { ...mapped.source_metadata, webhook_source_id: source.id },
           // Consentimento explícito só quando o Respondi confirmou concessão —
           // recusa NUNCA vira concessão por omissão. E a recusa agora é
@@ -813,6 +820,51 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
     }
   }
 
+  // Fonte nova reaproveita o card aberto (coluna reuse_open_lead, default true
+  // só depois do backfill das fontes que já existiam). Ausente ou false =
+  // o comportamento de sempre: um envio, um card, mesmo que a pessoa já tenha
+  // outro aberto. O external_id repetido já saiu acima e não chega aqui.
+  if (source.reuse_open_lead === true && contactId) {
+    const aberto = await cardAbertoDoContato(admin, source.organization_id as string, contactId);
+    if (aberto) {
+      const resultado = await reusarCardAberto(admin, aberto, {
+        organizationId: source.organization_id as string,
+        webhookSourceId: source.id as string,
+        contactId,
+        externalId,
+        utm: mapped.source_metadata,
+        tags: etiquetasDoPayload(payload),
+        campos: Object.keys(payload).filter((chave) => !chave.toLowerCase().includes("token")).slice(0, 30),
+        captureSource: origemGravadaDaFonte(source),
+        requestId,
+      });
+      if (resultado.reusado) {
+        await admin
+          .from("webhook_sources")
+          .update({ last_received_at: new Date().toISOString() })
+          .eq("organization_id", source.organization_id)
+          .eq("id", source.id);
+        await registrarCaptacao(admin, {
+          ...fonteDaCaptacao,
+          ...origemDaCaptacao,
+          ...dadosDaCaptacao,
+          leadId: resultado.leadId,
+          contactId,
+          outcome: resultado.repetido ? "duplicado" : "atualizado",
+        });
+        await audit({
+          action: "webhook.lead_received",
+          organizationId: source.organization_id,
+          resourceType: "crm_lead",
+          resourceId: resultado.leadId,
+          requestId,
+          metadata: { webhook_source_id: source.id, reaproveitado: true },
+        });
+        return respondWithLead(resultado.leadId);
+      }
+    }
+  }
+
   const leadInput: CreateLeadInput & {
     custom_fields?: Record<string, unknown>;
     source_metadata?: Record<string, unknown>;
@@ -825,8 +877,8 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
       ? respondiLeadTitle(respondiMapped)
       : (mapped.name ?? mapped.phone ?? mapped.email ?? "Lead sem nome"),
     contact_id: contactId,
-    tags: [],
-    source: "webhook",
+    tags: etiquetasDoEnvio(mapped.source_metadata, payload),
+    source: origemGravadaDaFonte(source),
     custom_fields: mapped.custom_fields,
     source_metadata: { ...mapped.source_metadata, webhook_source_id: source.id },
     // A coluna que responde "de quem é este card" para a atualização por
