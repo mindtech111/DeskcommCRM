@@ -1,4 +1,5 @@
 import { protecaoAgendaSupabase } from "@/lib/agenda/protecao-followup";
+import { consultarEmLotes, ErroDeConsulta } from "@/lib/postgrest/lotes-de-ids";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { classifyRisk, resolveStageWindow, type RiskBucket } from "@/lib/leads/risk-radar";
@@ -116,37 +117,45 @@ async function coletaEClassifica(
   const stageIds = [...new Set(leads.map((l) => l.stage_id).filter(Boolean))];
   const janelaPorEstagio = new Map<string, ReturnType<typeof resolveStageWindow>>();
   if (stageIds.length > 0) {
-    const { data: stages } = await admin
-      .from("crm_stages")
-      .select("id, expected_duration_hours")
-      .eq("organization_id", organizationId)
-      .in("id", stageIds);
-    for (const s of (stages ?? []) as Array<{ id: string; expected_duration_hours: number | null }>) {
-      janelaPorEstagio.set(s.id, resolveStageWindow(s));
-    }
+    const stages = await consultarEmLotes(stageIds, "crm_stages", (lote) =>
+      admin
+        .from("crm_stages")
+        .select("id, expected_duration_hours")
+        .eq("organization_id", organizationId)
+        .in("id", [...lote]),
+    );
+    for (const s of stages) janelaPorEstagio.set(s.id, resolveStageWindow(s));
   }
 
   // "em voo" = a IA prometeu voltar. Sem isto, um negócio com follow-up agendado
   // entraria como `critico` na estreia e apareceria como abandono — o oposto do
   // que ele é. A fonte é a mesma que o radar usa.
+  //
+  // Esta função é o miolo do `risk-watcher` (a cada 15 min). A lista aqui é
+  // TODO negócio aberto, sem o teto de 500 do radar: ~1000 contatos estouram
+  // a URL do PostgREST (400) em `cron_jobs` e, em seguida, em
+  // `calendar_appointments`. O erro de `cron_jobs` não pode ser ignorado —
+  // senão todo mundo entra como se não houvesse retorno marcado.
   const contactIds = [...new Set(leads.map((l) => l.contact_id).filter((c): c is string => !!c))];
   const followupPorContato = new Set<string>();
   if (contactIds.length > 0) {
-    const { data: jobs } = await admin
-      .from("cron_jobs")
-      .select("contact_id")
-      .eq("organization_id", organizationId)
-      .eq("kind", "at")
-      .eq("enabled", true)
-      .gt("next_run_at", now.toISOString())
-      .in("contact_id", contactIds);
-    for (const j of (jobs ?? []) as Array<{ contact_id: string }>) {
-      followupPorContato.add(j.contact_id);
-    }
+    const jobs = await consultarEmLotes(contactIds, "cron_jobs", (lote) =>
+      admin
+        .from("cron_jobs")
+        .select("contact_id")
+        .eq("organization_id", organizationId)
+        .eq("kind", "at")
+        .eq("enabled", true)
+        .gt("next_run_at", now.toISOString())
+        .in("contact_id", [...lote]),
+    );
+    for (const j of jobs) followupPorContato.add(j.contact_id);
   }
 
   const agenda = await protecaoAgendaSupabase(admin, organizationId, contactIds, now);
-  if ([...agenda.values()].some(p => p.motivo === "leitura_indisponivel")) throw new Error("risk_agenda_indisponivel");
+  if ([...agenda.values()].some((p) => p.motivo === "leitura_indisponivel")) {
+    throw new ErroDeConsulta("calendar_appointments", "leitura_indisponivel");
+  }
   const estados: EstadoCalculado[] = [];
   let semRelogio = 0;
 

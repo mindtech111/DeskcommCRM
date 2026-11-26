@@ -1,5 +1,6 @@
 import { protecaoAgendaSupabase, type ProtecaoAgenda } from "@/lib/agenda/protecao-followup";
 import type { Role } from "@/lib/auth/types";
+import { consultarEmLotes, ErroDeConsulta } from "@/lib/postgrest/lotes-de-ids";
 /**
  * O RADAR DE RISCO, montado — a lista de demandas abertas que esfriaram.
  *
@@ -32,11 +33,11 @@ import {
 // query paginada com índice (organization_id, status, last_activity_at).
 const SCAN_CAP = 500;
 
-// Quantos ids cabem numa consulta `in (...)` sem a lista estourar a linha de
-// request do PostgREST. Ver o laço em `demandasVisiveis` para o porquê do teto.
-const IDS_POR_CONSULTA = 100;
-
 export const RADAR_MIN_HOURS_PADRAO = RISK_COLD_HOURS;
+
+function falhou(step: string, error: { message: string; code?: string }): never {
+  throw new ErroDeConsulta(step, error.message, error.code);
+}
 
 export interface AtRiskLead {
   id: string;
@@ -168,7 +169,7 @@ export async function carregaRadarDeRisco(
     .select("id")
     .eq("organization_id", organizationId)
     .eq("is_archived", true);
-  if (arquivadosErr) throw new Error(`radar_pipelines_failed: ${arquivadosErr.message}`);
+  if (arquivadosErr) falhou("crm_pipelines", arquivadosErr);
   const funisArquivados = (arquivados ?? []).map((p) => p.id as string);
 
   let consultaDeLeads = admin
@@ -185,7 +186,7 @@ export async function carregaRadarDeRisco(
   const { data: leads, error: leadsErr } = await consultaDeLeads
     .order("last_activity_at", { ascending: true, nullsFirst: true })
     .limit(SCAN_CAP);
-  if (leadsErr) throw new Error(`radar_query_failed: ${leadsErr.message}`);
+  if (leadsErr) falhou("crm_leads", leadsErr);
 
   const rows = leads ?? [];
 
@@ -199,14 +200,14 @@ export async function carregaRadarDeRisco(
   ];
   const agentNameById = new Map<string, string>();
   if (agentIds.length > 0) {
-    const { data: agents } = await admin
-      .from("ai_agents")
-      .select("id, name")
-      .eq("organization_id", organizationId)
-      .in("id", agentIds);
-    for (const a of (agents ?? []) as Array<{ id: string; name: string }>) {
-      agentNameById.set(a.id, a.name);
-    }
+    const agents = await consultarEmLotes(agentIds, "ai_agents", (lote) =>
+      admin
+        .from("ai_agents")
+        .select("id, name")
+        .eq("organization_id", organizationId)
+        .in("id", [...lote]),
+    );
+    for (const a of agents) agentNameById.set(a.id, a.name);
   }
 
   // Janela de esfriamento POR ESTÁGIO (decisão §3.3): "sem resposta há 2 dias" é
@@ -215,17 +216,14 @@ export async function carregaRadarDeRisco(
   const stageIds = [...new Set(rows.map((l) => l.stage_id).filter(Boolean))];
   const windowByStage = new Map<string, ReturnType<typeof resolveStageWindow>>();
   if (stageIds.length > 0) {
-    const { data: stages } = await admin
-      .from("crm_stages")
-      .select("id, expected_duration_hours")
-      .eq("organization_id", organizationId)
-      .in("id", stageIds);
-    for (const s of (stages ?? []) as Array<{
-      id: string;
-      expected_duration_hours: number | null;
-    }>) {
-      windowByStage.set(s.id, resolveStageWindow(s));
-    }
+    const stages = await consultarEmLotes(stageIds, "crm_stages", (lote) =>
+      admin
+        .from("crm_stages")
+        .select("id, expected_duration_hours")
+        .eq("organization_id", organizationId)
+        .in("id", [...lote]),
+    );
+    for (const s of stages) windowByStage.set(s.id, resolveStageWindow(s));
   }
   const contactIds = [
     ...new Set(rows.map((l) => l.contact_id).filter((c): c is string => c !== null)),
@@ -238,7 +236,12 @@ export async function carregaRadarDeRisco(
   const nameByContact = new Map<string, string | null>();
 
   if (contactIds.length > 0) {
-    const [followups, convs, contacts] = await Promise.all([
+    // Em série, cada uma com no máximo 4 lotes vivos. As três em paralelo
+    // vezes 4 lotes passariam de dez consultas ao mesmo tempo — o que o
+    // statement_timeout da RLS não aguenta. O erro de `cron_jobs` (e o das
+    // outras duas) sobe: ignorá-lo fazia o radar tratar follow-up quebrado
+    // como "não há follow-up".
+    const followups = await consultarEmLotes(contactIds, "cron_jobs", (lote) =>
       admin
         .from("cron_jobs")
         .select("contact_id, next_run_at")
@@ -246,35 +249,39 @@ export async function carregaRadarDeRisco(
         .eq("kind", "at")
         .eq("enabled", true)
         .gt("next_run_at", nowIso)
-        .in("contact_id", contactIds),
+        .in("contact_id", [...lote]),
+    );
+    const convs = await consultarEmLotes(contactIds, "conversations", (lote) =>
       admin
         .from("conversations")
         .select("id, contact_id, assignee_kind")
         .eq("organization_id", organizationId)
-        .in("contact_id", contactIds),
+        .in("contact_id", [...lote]),
+    );
+    const contacts = await consultarEmLotes(contactIds, "contacts", (lote) =>
       admin
         .from("contacts")
         .select("id, name, display_name")
         .eq("organization_id", organizationId)
-        .in("id", contactIds),
-    ]);
+        .in("id", [...lote]),
+    );
 
-    for (const f of followups.data ?? []) {
+    for (const f of followups) {
       const prev = followupByContact.get(f.contact_id);
       if (!prev || f.next_run_at < prev) followupByContact.set(f.contact_id, f.next_run_at);
     }
-    for (const c of convs.data ?? []) {
-      if (!convByContact.has(c.contact_id)) {
+    for (const c of convs) {
+      if (c.contact_id && !convByContact.has(c.contact_id)) {
         convByContact.set(c.contact_id, { id: c.id, assignee_kind: c.assignee_kind ?? null });
       }
     }
-    for (const p of contacts.data ?? []) {
-      nameByContact.set(p.id, nomeDoContato(p));
-    }
+    for (const p of contacts) nameByContact.set(p.id, nomeDoContato(p));
   }
 
   const agenda = await protecaoAgendaSupabase(admin, organizationId, contactIds, now);
-  if ([...agenda.values()].some(p => p.motivo === "leitura_indisponivel")) throw new Error("radar_agenda_indisponivel");
+  if ([...agenda.values()].some((p) => p.motivo === "leitura_indisponivel")) {
+    throw new ErroDeConsulta("calendar_appointments", "leitura_indisponivel");
+  }
   const radar: AtRiskLead[] = [];
   const counts: Record<RiskBucket, number> = { critico: 0, em_risco: 0, em_voo: 0, em_dia: 0 };
 
@@ -290,7 +297,11 @@ export async function carregaRadarDeRisco(
       window: windowByStage.get(l.stage_id) ?? resolveStageWindow(null),
     });
     const protection = l.contact_id ? agenda.get(l.contact_id) : undefined;
-    if (!onRadar || (hoursSinceActivity < minHours && (!protection || protection.motivo === "sem_compromisso"))) continue;
+    if (
+      !onRadar ||
+      (hoursSinceActivity < minHours && (!protection || protection.motivo === "sem_compromisso"))
+    )
+      continue;
     const conv = l.contact_id ? (convByContact.get(l.contact_id) ?? null) : null;
     counts[bucket] += 1;
     radar.push({
@@ -336,7 +347,7 @@ export async function carregaRadarDeRisco(
   const { data: semPasso, error: demandaError } = await consultaDeDemandas
     .order("aberta_em", { ascending: true })
     .limit(SCAN_CAP);
-  if (demandaError) throw new Error(`radar_demandas_failed: ${demandaError.message}`);
+  if (demandaError) falhou("demandas", demandaError);
   let demandasVisiveis = semPasso ?? [];
   // Mesmo corte dos leads: demanda presa a lead de funil arquivado sai.
   // Demanda sem lead não tem funil e fica.
@@ -352,9 +363,11 @@ export async function carregaRadarDeRisco(
   // descarta a linha NULL — apagaria exatamente a "demanda sem lead" que a linha
   // acima diz que tem de ficar. Por isso NÃO vira `.not("lead_id", "in", ...)`.
   if (funisArquivados.length > 0) {
-    const idsDeLead = [...new Set(demandasVisiveis.flatMap((d) => (d.lead_id ? [d.lead_id as string] : [])))];
+    const idsDeLead = [
+      ...new Set(demandasVisiveis.flatMap((d) => (d.lead_id ? [d.lead_id as string] : []))),
+    ];
     const fora = new Set<string>();
-    // EM LOTES DE `IDS_POR_CONSULTA`, e não numa consulta só: esta lista vai na
+    // EM LOTES DE 100 (`consultarEmLotes`), e não numa consulta só: esta lista vai na
     // QUERYSTRING do PostgREST. Um uuid custa ~37 bytes na URL e o teto da
     // leitura acima é `SCAN_CAP` (500), então a linha de request passaria de
     // ~18 KB numa organização carregada. O limite dos proxies que ficam na
@@ -363,43 +376,59 @@ export async function carregaRadarDeRisco(
     // 414/400, e o radar inteiro vira 500 justamente para quem tem mais
     // demandas abertas — quem mais precisa dele. Não medido contra o proxy
     // deste produto; o lote existe para a pergunta não precisar ser feita.
-    for (let i = 0; i < idsDeLead.length; i += IDS_POR_CONSULTA) {
-      const fatia = idsDeLead.slice(i, i + IDS_POR_CONSULTA);
-      const { data: deArquivado, error: deArquivadoErr } = await admin
+    const deArquivado = await consultarEmLotes(idsDeLead, "crm_leads", (fatia) =>
+      admin
         .from("crm_leads")
         .select("id")
         .eq("organization_id", organizationId)
-        .in("id", fatia)
-        .in("pipeline_id", funisArquivados);
-      if (deArquivadoErr) throw new Error(`radar_demandas_funil_failed: ${deArquivadoErr.message}`);
-      for (const l of deArquivado ?? []) fora.add(l.id as string);
-    }
+        .in("id", [...fatia])
+        .in("pipeline_id", funisArquivados),
+    );
+    for (const l of deArquivado) fora.add(l.id as string);
     demandasVisiveis = demandasVisiveis.filter((d) => !d.lead_id || !fora.has(d.lead_id as string));
   }
   if (opts.humanRole === "agent" && demandasVisiveis.length) {
     // Demandas são org-flat. A visibilidade dos candidatos vem das relações sob
     // RLS, em lote separado do pool de leads frios (que não define autorização).
-    const leadIds = [...new Set(demandasVisiveis.flatMap(d => d.lead_id ? [d.lead_id] : []))];
-    const leadlessIds = demandasVisiveis.filter(d => !d.lead_id).map(d => d.id);
+    const leadIds = [...new Set(demandasVisiveis.flatMap((d) => (d.lead_id ? [d.lead_id] : [])))];
+    const leadlessIds = demandasVisiveis.filter((d) => !d.lead_id).map((d) => d.id);
     const visibleLeads = new Set<string>();
     const visibleLeadless = new Set<string>();
     if (leadIds.length) {
-      const result = await admin.from("crm_leads").select("id").eq("organization_id", organizationId).in("id", leadIds);
-      if (result.error) throw new Error("radar_scope_leads_failed");
-      for (const lead of result.data ?? []) visibleLeads.add(lead.id);
+      const leadsVisiveis = await consultarEmLotes(leadIds, "crm_leads", (lote) =>
+        admin
+          .from("crm_leads")
+          .select("id")
+          .eq("organization_id", organizationId)
+          .in("id", [...lote]),
+      );
+      for (const lead of leadsVisiveis) visibleLeads.add(lead.id);
     }
     if (leadlessIds.length) {
-      const links = await admin.from("demanda_conversas").select("demanda_id,conversation_id").eq("organization_id", organizationId).in("demanda_id", leadlessIds);
-      if (links.error) throw new Error("radar_scope_links_failed");
-      const ids = [...new Set((links.data ?? []).map(link => link.conversation_id))];
+      const links = await consultarEmLotes(leadlessIds, "demanda_conversas", (lote) =>
+        admin
+          .from("demanda_conversas")
+          .select("demanda_id,conversation_id")
+          .eq("organization_id", organizationId)
+          .in("demanda_id", [...lote]),
+      );
+      const ids = [...new Set(links.map((link) => link.conversation_id))];
       if (ids.length) {
-        const convs = await admin.from("conversations").select("id").eq("organization_id", organizationId).in("id", ids);
-        if (convs.error) throw new Error("radar_scope_conversations_failed");
-        const visible = new Set((convs.data ?? []).map(c => c.id));
-        for (const link of links.data ?? []) if (visible.has(link.conversation_id)) visibleLeadless.add(link.demanda_id);
+        const convs = await consultarEmLotes(ids, "conversations", (lote) =>
+          admin
+            .from("conversations")
+            .select("id")
+            .eq("organization_id", organizationId)
+            .in("id", [...lote]),
+        );
+        const visible = new Set(convs.map((c) => c.id));
+        for (const link of links)
+          if (visible.has(link.conversation_id)) visibleLeadless.add(link.demanda_id);
       }
     }
-    demandasVisiveis = demandasVisiveis.filter(d => d.lead_id ? visibleLeads.has(d.lead_id) : visibleLeadless.has(d.id));
+    demandasVisiveis = demandasVisiveis.filter((d) =>
+      d.lead_id ? visibleLeads.has(d.lead_id) : visibleLeadless.has(d.id),
+    );
   }
 
   // #2035 (Parte 1) — o deep-link do item. A conversa VIGENTE da demanda sai
@@ -416,14 +445,18 @@ export async function carregaRadarDeRisco(
   const STATUS_ABERTOS_DA_CONVERSA = new Set(["open", "pending", "claimed", "ai_handling"]);
   const conversaPorDemanda = new Map<string, { id: string; aberta: boolean }>();
   if (demandasVisiveis.length > 0) {
-    const { data: links, error: linksErr } = await admin
-      .from("demanda_conversas")
-      .select("demanda_id, conversation_id, conversations(status)")
-      .eq("organization_id", organizationId)
-      .in("demanda_id", demandasVisiveis.map((d) => d.id));
-    if (linksErr) throw new Error(`radar_demanda_conversa_failed: ${linksErr.message}`);
-    for (const l of links ?? []) {
-      const status = ((l.conversations as { status?: string } | null)?.status) ?? null;
+    const links = await consultarEmLotes(
+      demandasVisiveis.map((d) => d.id),
+      "demanda_conversas",
+      (lote) =>
+        admin
+          .from("demanda_conversas")
+          .select("demanda_id, conversation_id, conversations(status)")
+          .eq("organization_id", organizationId)
+          .in("demanda_id", [...lote]),
+    );
+    for (const l of links) {
+      const status = (l.conversations as { status?: string } | null)?.status ?? null;
       const aberta = status !== null && STATUS_ABERTOS_DA_CONVERSA.has(status);
       const prev = conversaPorDemanda.get(l.demanda_id);
       if (!prev || (aberta && !prev.aberta)) {
@@ -462,7 +495,7 @@ export async function carregaRadarDeRisco(
     .order("lead_id", { ascending: true })
     .order("created_at", { ascending: false })
     .limit(SCAN_CAP);
-  if (propostasErr) throw new Error(`radar_propostas_failed: ${propostasErr.message}`);
+  if (propostasErr) falhou("crm_proposals", propostasErr);
   // A "mais recente por lead" é por `created_at` desc — monotônico em
   // QUALQUER proposta nova (cadeia nova ou versão nova dentro da mesma),
   // ao contrário de `versao`, que só ordena dentro da mesma cadeia.
@@ -483,11 +516,20 @@ export async function carregaRadarDeRisco(
     if (p.lead_id == null) continue;
     if (!leadsValidos.has(p.lead_id as string)) continue;
     // a primeira ocorrência de cada lead_id É a mais recente (created_at desc).
-    if (!maisRecentePorLead.has(p.lead_id as string)) maisRecentePorLead.set(p.lead_id as string, p);
+    if (!maisRecentePorLead.has(p.lead_id as string))
+      maisRecentePorLead.set(p.lead_id as string, p);
   }
-  const propostas_vencidas_sem_retomada: PropostaVencidaSemRetomada[] = [...maisRecentePorLead.values()]
+  const propostas_vencidas_sem_retomada: PropostaVencidaSemRetomada[] = [
+    ...maisRecentePorLead.values(),
+  ]
     .filter((p) => p.status === "vencida")
-    .map((p) => ({ lead_id: p.lead_id as string, proposal_id: p.id as string, numero: p.numero as number | null, ano: p.ano as number | null, valid_until: p.valid_until as string | null }));
+    .map((p) => ({
+      lead_id: p.lead_id as string,
+      proposal_id: p.id as string,
+      numero: p.numero as number | null,
+      ano: p.ano as number | null,
+      valid_until: p.valid_until as string | null,
+    }));
 
   // C6 — "Propostas esperando revisão": RASCUNHO com aviso
   // `proposta_pronta_para_revisao` ABERTO. Cruza o aviso com as propostas JÁ
@@ -502,7 +544,7 @@ export async function carregaRadarDeRisco(
     .eq("organization_id", organizationId)
     .eq("kind", "proposta_pronta_para_revisao")
     .eq("status", "open");
-  if (avisosErr) throw new Error(`radar_avisos_failed: ${avisosErr.message}`);
+  if (avisosErr) falhou("agent_inbox_items", avisosErr);
   const comAvisoAberto = new Set((avisosDeRevisao ?? []).map((a) => a.ref_id as string));
   // Com `contactId` (turno do agente), o negócio da proposta também tem de ser
   // do contato: a proposta guarda o contato de quando foi feita, e o negócio
@@ -523,21 +565,22 @@ export async function carregaRadarDeRisco(
     ),
   ];
   if (contatosFaltando.length > 0) {
-    const { data: contatosExtras, error: contatosExtrasErr } = await admin
-      .from("contacts")
-      .select("id, name, display_name")
-      .eq("organization_id", organizationId)
-      .in("id", contatosFaltando);
-    if (contatosExtrasErr) throw new Error(`radar_proposta_contatos_failed: ${contatosExtrasErr.message}`);
-    for (const c of (contatosExtras ?? []) as Array<{ id: string; name: string | null; display_name: string | null }>) {
-      nomePorContato.set(c.id, nomeDoContato(c));
-    }
+    const contatosExtras = await consultarEmLotes(contatosFaltando, "contacts", (lote) =>
+      admin
+        .from("contacts")
+        .select("id, name, display_name")
+        .eq("organization_id", organizationId)
+        .in("id", [...lote]),
+    );
+    for (const c of contatosExtras) nomePorContato.set(c.id, nomeDoContato(c));
   }
   const propostas_esperando_revisao: PropostaEsperandoRevisao[] = rascunhosEsperando.map((p) => ({
     proposal_id: p.id as string,
     lead_id: p.lead_id as string,
     titulo: (p.titulo as string | null) ?? null,
-    contact_name: (p.contact_id as string | null) ? (nomePorContato.get(p.contact_id as string) ?? null) : null,
+    contact_name: (p.contact_id as string | null)
+      ? (nomePorContato.get(p.contact_id as string) ?? null)
+      : null,
     created_at: p.created_at as string,
   }));
 

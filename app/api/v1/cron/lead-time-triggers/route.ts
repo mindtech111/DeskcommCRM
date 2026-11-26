@@ -42,6 +42,7 @@ import type { NextRequest } from "next/server";
 
 import { protecaoAgendaSupabase } from "@/lib/agenda/protecao-followup";
 import { ok, fail } from "@/lib/api/wrappers";
+import { consultarEmLotes, ErroDeConsulta } from "@/lib/postgrest/lotes-de-ids";
 import { audit } from "@/lib/audit";
 import { TAMANHO_DO_LOTE, TETO_POR_ORGANIZACAO } from "@/lib/automation/cron-de-data";
 import {
@@ -193,14 +194,22 @@ async function handle(req: NextRequest): Promise<Response> {
           const contatos = [...new Set(leads.map((l) => l.contact_id as string))];
           // As conversas da PÁGINA, não das páginas juntas: o `.in()` do
           // PostgREST é uma lista na URL, e junção de páginas num só `in()`
-          // trocaria o teto por um URL que o banco recusa.
-          const { data: conversas, error: erroConversas } = await admin
-            .from("conversations")
-            .select(`contact_id, ${coluna}`)
-            .eq("organization_id", org)
-            .in("contact_id", contatos)
-            .limit(1_000);
-          if (erroConversas) {
+          // trocaria o teto por um URL que o banco recusa. A página ainda
+          // cabe até `TETO_POR_ORGANIZACAO` (200) contatos — acima de 100 a
+          // URL encosta no buffer de cabeçalho —, então o lote é o de 100.
+          let conversas: Array<Record<string, unknown>>;
+          try {
+            conversas = await consultarEmLotes(contatos, "conversations", async (lote) => {
+              const { data, error } = await admin
+                .from("conversations")
+                .select(`contact_id, ${coluna}`)
+                .eq("organization_id", org)
+                .in("contact_id", [...lote])
+                .limit(1_000);
+              return { data: data as unknown as Array<Record<string, unknown>> | null, error };
+            });
+          } catch (erro) {
+            if (!(erro instanceof ErroDeConsulta)) throw erro;
             pular("consulta_falhou");
             falhouNaConsulta = true;
             break;
@@ -208,7 +217,7 @@ async function handle(req: NextRequest): Promise<Response> {
 
           // Um contato pode ter várias conversas: a âncora é a MAIS RECENTE delas.
           const ultimaPorContato = new Map<string, string>();
-          for (const conversa of (conversas ?? []) as unknown as Array<Record<string, unknown>>) {
+          for (const conversa of conversas) {
             const valor = conversa[coluna];
             if (typeof valor !== "string" || !valor) continue;
             const atual = ultimaPorContato.get(conversa.contact_id as string);

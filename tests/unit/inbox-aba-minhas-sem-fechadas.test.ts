@@ -162,7 +162,9 @@ describe("listConversationsHandler — predicado", () => {
   it("continua filtrando por organização — o filtro novo não desloca o de tenant", async () => {
     const chamadas = await rodar({ assigned_to: "me", exclude_finished: true });
     expect(
-      chamadas.some((c) => c.metodo === "eq" && c.args[0] === "organization_id" && c.args[1] === "org-1"),
+      chamadas.some(
+        (c) => c.metodo === "eq" && c.args[0] === "organization_id" && c.args[1] === "org-1",
+      ),
     ).toBe(true);
   });
 });
@@ -180,7 +182,9 @@ describe("contador de Minhas", () => {
     const fonte = readFileSync("app/api/v1/conversations/counts/route.ts", "utf8");
 
     expect(fonte).toContain("CONVERSATION_TERMINAL_STATUSES");
-    expect(fonte).toMatch(/assigned_to_user_id[\s\S]{0,200}not\(\s*"status"\s*,\s*"in"/);
+    expect(fonte).toMatch(
+      /assigned_to_user_id === opts\.userId && !terminais\.has\(linha\.status\)/,
+    );
   });
 });
 

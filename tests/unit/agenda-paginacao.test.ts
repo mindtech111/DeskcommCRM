@@ -56,6 +56,7 @@ it("páginas truncadas abaixo do limit são lidas até vazio; protetor após 100
 });
 it("falha de página posterior não transforma leitura parcial em ausência", async () => {
   const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+  const erro = vi.spyOn(logger, "error").mockImplementation(() => {});
   let second = false;
   const q = {
     select: () => q,
@@ -70,13 +71,23 @@ it("falha de página posterior não transforma leitura parcial em ausência", as
     then: (resolve: (v: unknown) => unknown) =>
       Promise.resolve(
         second
-          ? { data: null, error: { message: "page unavailable" } }
+          ? { data: null, error: { message: "page unavailable", code: "57014" } }
           : { data: [{ id: "1", contact_id: "c" }], error: null },
       ).then(resolve),
   };
   expect(
     (await protecaoAgendaSupabase({ from: () => q } as never, "org", ["c"], now)).get("c"),
   ).toMatchObject({ adiar: true, motivo: "leitura_indisponivel" });
-  expect(warn).toHaveBeenCalledOnce();
+  expect(warn).not.toHaveBeenCalled();
+  expect(erro).toHaveBeenCalledOnce();
+  expect(erro).toHaveBeenCalledWith(
+    "[agenda] proteção indisponível; cobrança adiada",
+    expect.objectContaining({
+      step: "calendar_appointments",
+      message: expect.stringContaining("page unavailable"),
+      code: "57014",
+    }),
+  );
   warn.mockRestore();
+  erro.mockRestore();
 });

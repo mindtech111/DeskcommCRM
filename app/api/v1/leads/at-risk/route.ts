@@ -18,6 +18,7 @@ import { z } from "zod";
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { carregaRadarDeRisco, RADAR_MIN_HOURS_PADRAO } from "@/lib/leads/radar-de-risco";
+import { registrarFalhaDeLeitura } from "@/lib/observabilidade/falha-de-leitura";
 import { createClient } from "@/lib/supabase/server";
 import { traduzir } from "@/lib/i18n/dicionario";
 
@@ -37,9 +38,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org } = authz;
 
-  const parsed = querySchema.safeParse(
-    Object.fromEntries(new URL(req.url).searchParams.entries()),
-  );
+  const parsed = querySchema.safeParse(Object.fromEntries(new URL(req.url).searchParams.entries()));
   if (!parsed.success) {
     return fail("validation_failed", t("Query inválida."), 422, {
       requestId,
@@ -56,7 +55,14 @@ export async function GET(req: NextRequest): Promise<Response> {
       minHours: min_hours,
     });
     return ok(radar, { requestId });
-  } catch {
+  } catch (erro) {
+    // A resposta que a tela vê não muda. O que muda é o log: antes o catch
+    // engolia a causa, e a única pista era o 500 genérico.
+    registrarFalhaDeLeitura(
+      "[radar] falha ao carregar",
+      { subsystem: "radar", organization_id: org.orgId, requestId },
+      erro,
+    );
     return fail("internal_error", t("Falha ao carregar o radar."), 500, { requestId });
   }
 }

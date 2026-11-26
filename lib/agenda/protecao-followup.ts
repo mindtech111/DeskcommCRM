@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Queryable } from "@/lib/agent-engine/queue/queue";
+import { registrarFalhaDeLeitura } from "@/lib/observabilidade/falha-de-leitura";
+import { juntarPorId, mapEmLotes } from "@/lib/postgrest/lotes-de-ids";
 import { agendaSettingsSchema } from "@/lib/schemas/settings";
-import { logger } from "@/lib/logger";
 
 export interface CompromissoProtetor {
   id: string;
@@ -58,7 +59,6 @@ export function protecaoDaAgenda(
   };
 }
 function indisponivel(agora: Date): ProtecaoAgenda {
-  logger.warn("[agenda] proteção indisponível; cobrança adiada");
   return {
     adiar: true,
     motivo: "leitura_indisponivel",
@@ -66,6 +66,45 @@ function indisponivel(agora: Date): ProtecaoAgenda {
     reavaliar_em: new Date(agora.getTime() + 60_000).toISOString(),
   };
 }
+
+function registrarIndisponivel(org: string, contatos: number, etapa: string, erro: unknown): void {
+  registrarFalhaDeLeitura(
+    "[agenda] proteção indisponível; cobrança adiada",
+    { subsystem: "agenda", step: etapa, organization_id: org, contatos },
+    erro,
+  );
+}
+
+async function compromissosDoLote(
+  db: SupabaseClient,
+  org: string,
+  lote: readonly string[],
+): Promise<CompromissoProtetor[]> {
+  const appointments: CompromissoProtetor[] = [];
+  let after: string | undefined;
+  // Keyset estável: uma resposta bem-sucedida pode ter sido truncada pelo
+  // max_rows do PostgREST. Só página VAZIA prova que a leitura terminou.
+  for (;;) {
+    let query = db
+      .from("calendar_appointments")
+      .select("id,contact_id,revision,starts_at,ends_at,status")
+      .eq("organization_id", org)
+      .in("contact_id", [...lote])
+      .in("status", ["pending", "confirmed"])
+      .order("id", { ascending: true })
+      .limit(500);
+    if (after) query = query.gt("id", after);
+    const page = await query;
+    if (page.error) throw page.error;
+    if (!page.data?.length) break;
+    const last = page.data[page.data.length - 1]!.id;
+    if (after && last <= after) throw new Error("agenda_page_did_not_advance");
+    appointments.push(...page.data);
+    after = last;
+  }
+  return appointments;
+}
+
 export async function protecaoAgendaSupabase(
   db: SupabaseClient,
   org: string,
@@ -73,29 +112,13 @@ export async function protecaoAgendaSupabase(
   agora = new Date(),
 ): Promise<Map<string, ProtecaoAgenda>> {
   if (!contatos.length) return new Map();
+  let etapa = "calendar_appointments";
   try {
-    const appointments: CompromissoProtetor[] = [];
-    let after: string | undefined;
-    // Keyset estável: uma resposta bem-sucedida pode ter sido truncada pelo
-    // max_rows do PostgREST. Só página VAZIA prova que a leitura terminou.
-    for (;;) {
-      let query = db
-        .from("calendar_appointments")
-        .select("id,contact_id,revision,starts_at,ends_at,status")
-        .eq("organization_id", org)
-        .in("contact_id", contatos)
-        .in("status", ["pending", "confirmed"])
-        .order("id", { ascending: true })
-        .limit(500);
-      if (after) query = query.gt("id", after);
-      const page = await query;
-      if (page.error) throw page.error;
-      if (!page.data?.length) break;
-      const last = page.data[page.data.length - 1]!.id;
-      if (after && last <= after) throw new Error("agenda_page_did_not_advance");
-      appointments.push(...page.data);
-      after = last;
-    }
+    const paginas = await mapEmLotes([...new Set(contatos)], (lote) =>
+      compromissosDoLote(db, org, lote),
+    );
+    const appointments = juntarPorId(paginas);
+    etapa = "organizations";
     const organization = await db.from("organizations").select("settings").eq("id", org).single();
     if (organization.error) throw organization.error;
     return new Map(
@@ -108,7 +131,8 @@ export async function protecaoAgendaSupabase(
         ),
       ]),
     );
-  } catch {
+  } catch (erro) {
+    registrarIndisponivel(org, contatos.length, etapa, erro);
     return new Map(contatos.map((id) => [id, indisponivel(agora)]));
   }
 }
@@ -118,20 +142,21 @@ export async function protecaoAgendaPg(
   contact: string,
   agora = new Date(),
 ): Promise<ProtecaoAgenda> {
+  let etapa = "calendar_appointments";
   try {
-    const [appointments, organization] = await Promise.all([
-      db.query<CompromissoProtetor>(
-        "select id,contact_id,revision::float8,starts_at::text,ends_at::text,status from calendar_appointments where organization_id=$1 and contact_id=$2 and status in ('pending','confirmed')",
-        [org, contact],
-      ),
-      db.query<{ settings: { agenda?: unknown } }>(
-        "select settings from organizations where id=$1",
-        [org],
-      ),
-    ]);
+    const appointments = await db.query<CompromissoProtetor>(
+      "select id,contact_id,revision::float8,starts_at::text,ends_at::text,status from calendar_appointments where organization_id=$1 and contact_id=$2 and status in ('pending','confirmed')",
+      [org, contact],
+    );
+    etapa = "organizations";
+    const organization = await db.query<{ settings: { agenda?: unknown } }>(
+      "select settings from organizations where id=$1",
+      [org],
+    );
     if (!organization.rows[0]) throw new Error("agenda_org_missing");
     return protecaoDaAgenda(appointments.rows, organization.rows[0].settings?.agenda, agora);
-  } catch {
+  } catch (erro) {
+    registrarIndisponivel(org, 1, etapa, erro);
     return indisponivel(agora);
   }
 }

@@ -160,53 +160,45 @@ describe("o marcador da contagem é o da lista — uma régua só", () => {
 /**
  * ⭐ A GUARDA QUE TORNA A SABOTAGEM POSSÍVEL.
  *
- * Os filtros são aplicados DENTRO de `countExact()`, então toda contagem os herda
- * por construção. Isso é melhor que um teste — mas some no dia em que alguém
- * montar uma contagem por fora da fábrica, que é a única forma de o defeito
- * voltar. É isso que este caso vigia.
+ * Os filtros comuns nascem DENTRO de `consultaDasContagens()`, e as seis abas
+ * saem dessa única leitura (`contagensDoRecorte`). Uma segunda consulta de
+ * `conversations` na rota seria o caminho de esquecer organização ou filtro —
+ * o defeito que a fábrica antiga (`countExact`) existia para impedir, agora
+ * com uma ida ao banco em vez de seis `count=exact`.
  */
 describe("nenhuma contagem é montada por fora da fábrica", () => {
   const fonte = readFileSync("app/api/v1/conversations/counts/route.ts", "utf8");
+  const semComentarios = fonte.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-  it("toda contagem sai de `countExact()`", () => {
-    const dentroDoPromiseAll = fonte.slice(
-      fonte.indexOf("await Promise.all(["),
-      fonte.indexOf("]);", fonte.indexOf("await Promise.all([")),
-    );
-    expect(dentroDoPromiseAll).not.toBe("");
-    const linhasDeContagem = dentroDoPromiseAll
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.startsWith("supabase") || l.includes('.from("conversations")'));
-    expect(
-      linhasDeContagem,
-      "contagem montada direto no supabase, por fora de countExact() — ela não herda nem a organização nem os filtros",
-    ).toEqual([]);
+  it("há uma leitura de conversations, e ela é a fábrica", () => {
+    const leituras = semComentarios.match(/\.from\("conversations"\)/g) ?? [];
+    expect(leituras, "segunda leitura de conversations não herda a fábrica").toEqual([
+      '.from("conversations")',
+    ]);
+    expect(semComentarios).not.toContain('count: "exact"');
   });
 
   it("a fábrica aplica os auxiliares E o não-lidas", () => {
     const fabrica = fonte.slice(
-      fonte.indexOf("const countExact = ("),
-      fonte.indexOf("await Promise.all(["),
+      fonte.indexOf("const consultaDasContagens = ("),
+      fonte.indexOf("const automaticoDaOrg"),
     );
+    expect(fabrica).not.toBe("");
     expect(fabrica).toContain("organization_id");
-    expect(fabrica, "os filtros auxiliares não entram na fábrica").toContain("auxiliares");
+    expect(fabrica, "os filtros auxiliares não entram na fábrica").toContain("filtrosComuns");
     expect(fabrica, "o filtro de não lidas não entra na fábrica").toContain("soNaoLidas");
   });
 
   it("a fábrica aplica a régua do marcador (#1223)", () => {
-    // O defeito morava aqui: a fábrica pedia `.eq("tag", valor)`. Sem esta linha,
-    // a contagem ignora o marcador em silêncio — e o badge passa a contar o que a
-    // aba não mostra, que é o defeito que este arquivo existe para pegar.
     const fabrica = fonte.slice(
-      fonte.indexOf("const countExact = ("),
-      fonte.indexOf("await Promise.all(["),
+      fonte.indexOf("const consultaDasContagens = ("),
+      fonte.indexOf("const automaticoDaOrg"),
     );
     expect(fabrica, "o marcador não entra na fábrica").toContain("aplicarMarcadores(");
   });
 
   it("a aba Fechadas TEM contagem — o concorrente mostra 8067 e nós mostrávamos nada", () => {
-    expect(fonte).toContain("closed: closed.count");
+    expect(fonte).toContain("closed: contagens.closed");
   });
 
   it("o comentário não cita arquivo de teste que não existe", () => {

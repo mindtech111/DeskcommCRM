@@ -94,15 +94,15 @@ describe("aba Arquivadas — rótulo e badge", () => {
 });
 
 describe("contagem de arquivadas", () => {
-  it("a rota counts filtra archived separadamente de closed", () => {
+  it("a rota counts separa archived de closed", () => {
     const rota = fonte("app/api/v1/conversations/counts/route.ts");
-    expect(rota).toMatch(/\.eq\("status",\s*"archived"\)/);
-    expect(rota).toMatch(/\.eq\("status",\s*"closed"\)/);
+    expect(rota).toMatch(/status === "archived"/);
+    expect(rota).toMatch(/status === "closed"/);
   });
 
   it("devolve a chave archived no corpo", () => {
     const rota = fonte("app/api/v1/conversations/counts/route.ts");
-    expect(rota).toMatch(/archived:\s*archived\.count/);
+    expect(rota).toMatch(/archived:\s*contagens\.archived/);
   });
 });
 
