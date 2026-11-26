@@ -67,6 +67,15 @@ describe("contagens da barra — uma passada, o mesmo formato", () => {
     expect(c.fila).toBe(0);
   });
 
+  it("uuid do atendente em maiúsculas conta o mesmo que a lista", () => {
+    const c = contagensDoRecorte(
+      [linha({ id: "9", assigned_to_user_id: OUTRO, comando_da_conversa: "humano" })],
+      { userId: EU, comandosFila: ["aguardando"], atendenteEscolhido: OUTRO.toUpperCase() },
+    );
+    expect(c.all).toBe(1);
+    expect(c.closed).toBe(0);
+  });
+
   it("sem automático na org, a fila também conta o comando automatico", () => {
     const c = contagensDoRecorte(base, {
       userId: EU,

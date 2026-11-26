@@ -120,6 +120,12 @@ export function contagensDoRecorte(
   },
 ): ContagensDaBarra {
   const terminais = new Set<string>(CONVERSATION_TERMINAL_STATUSES);
+  // O banco compara uuid sem caixa. A lista pede `.eq` e aceita o id como
+  // veio na URL. Aqui a comparação é em memória, e o PostgREST devolve o
+  // uuid em minúsculas: sem normalizar, um id em maiúsculas zera as abas
+  // filtradas e a lista continua mostrando as conversas.
+  const escolhido = opts.atendenteEscolhido?.toLowerCase() ?? null;
+  const eu = opts.userId.toLowerCase();
   let fila = 0;
   let automatico = 0;
   let mine = 0;
@@ -127,8 +133,8 @@ export function contagensDoRecorte(
   let closed = 0;
   let archived = 0;
   for (const linha of linhas) {
-    const noRecorte =
-      opts.atendenteEscolhido === null || linha.assigned_to_user_id === opts.atendenteEscolhido;
+    const dono = linha.assigned_to_user_id?.toLowerCase() ?? null;
+    const noRecorte = escolhido === null || dono === escolhido;
     if (noRecorte) {
       all += 1;
       if (
@@ -141,7 +147,7 @@ export function contagensDoRecorte(
       if (linha.status === "closed") closed += 1;
       if (linha.status === "archived") archived += 1;
     }
-    if (linha.assigned_to_user_id === opts.userId && !terminais.has(linha.status)) mine += 1;
+    if (dono === eu && !terminais.has(linha.status)) mine += 1;
   }
   return { fila, automatico, unassigned: fila, mine, all, closed, archived };
 }

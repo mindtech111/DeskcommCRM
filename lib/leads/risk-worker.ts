@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger";
 import { emitLeadActivity } from "@/lib/leads/activity-emitter";
 import { registraFalhaDeAtividade } from "@/lib/leads/activity-write-failure";
 import { calculaBucketsAtuais, type EstadoCalculado } from "@/lib/leads/risk-seed";
+import { consultarEmLotes } from "@/lib/postgrest/lotes-de-ids";
 import { propoeReativacao } from "@/lib/leads/reactivation";
 import type { RiskBucket } from "@/lib/leads/risk-radar";
 import type { ActivityType } from "@/lib/leads/activity-vocabulary";
@@ -86,13 +87,24 @@ export async function observaTravessias(
 ): Promise<ResultadoDaObservacao> {
   const atuais = await calculaBucketsAtuais(admin, organizationId, now);
 
-  const { data: gravados, error } = await admin
-    .from("crm_lead_risk_states")
-    .select("lead_id, bucket")
-    .eq("organization_id", organizationId);
-  if (error) throw new Error(`observador de risco: ${error.message}`);
+  // O estado gravado dos negócios DESTA passada, em lotes. Uma leitura só da
+  // organização inteira para no `max_rows` do PostgREST (1000). Negócio que
+  // ficou de fora parecia "sem estado anterior", e `narra` gravava outro
+  // esfriamento para quem já estava crítico. Fechados antigos ocupam essa
+  // janela justamente nas orgs grandes — as que o lote de contatos passou a
+  // deixar chegar até aqui.
+  const gravados = await consultarEmLotes(
+    [...new Set(atuais.map((e) => e.leadId))],
+    "crm_lead_risk_states",
+    (lote) =>
+      admin
+        .from("crm_lead_risk_states")
+        .select("lead_id, bucket")
+        .eq("organization_id", organizationId)
+        .in("lead_id", [...lote]),
+  );
   const anterior = new Map<string, RiskBucket>(
-    ((gravados ?? []) as EstadoGravado[]).map((g) => [g.lead_id, g.bucket]),
+    (gravados as EstadoGravado[]).map((g) => [g.lead_id, g.bucket]),
   );
 
   const r: ResultadoDaObservacao = {

@@ -182,9 +182,7 @@ describe("contador de Minhas", () => {
     const fonte = readFileSync("app/api/v1/conversations/counts/route.ts", "utf8");
 
     expect(fonte).toContain("CONVERSATION_TERMINAL_STATUSES");
-    expect(fonte).toMatch(
-      /assigned_to_user_id === opts\.userId && !terminais\.has\(linha\.status\)/,
-    );
+    expect(fonte).toMatch(/dono === eu && !terminais\.has\(linha\.status\)/);
   });
 });
 

@@ -28,7 +28,8 @@ import { observaTravessias } from "@/lib/leads/risk-worker";
 
 const ORG = "00000000-0000-4000-8000-000000000001";
 const AGORA = new Date("2026-09-12T22:00:00Z");
-const RECUSA = 'new row for relation "crm_lead_risk_states" violates check constraint "crm_lead_risk_states_since_no_passado"';
+const RECUSA =
+  'new row for relation "crm_lead_risk_states" violates check constraint "crm_lead_risk_states_since_no_passado"';
 
 vi.mock("@/lib/env", () => ({
   env: { INTERNAL_CRON_SECRET: "segredo", INTERNAL_SECRET: "" },
@@ -71,8 +72,15 @@ function adminDuble() {
         };
       }
       if (tabela === "crm_lead_risk_states") {
+        const leitura = {
+          select: () => leitura,
+          eq: () => leitura,
+          in: () => leitura,
+          then: (ok: (v: unknown) => unknown) =>
+            Promise.resolve({ data: [], error: null }).then(ok),
+        };
         return {
-          select: () => ({ eq: async () => ({ data: [], error: null }) }),
+          select: () => leitura,
           upsert: async (linha: { lead_id: string }) => {
             if (linha.lead_id === recusarLead) return { error: { message: RECUSA } };
             gravados.push(linha.lead_id);
