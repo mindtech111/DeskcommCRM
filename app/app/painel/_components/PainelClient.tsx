@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { EmptyState } from "@/components/empty/EmptyState";
@@ -18,7 +19,13 @@ import {
 import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 import { useT } from "@/hooks/i18n/useT";
 import { usePainel, type RespostaDoPainel } from "@/hooks/metrics/usePainel";
+import { apiClient } from "@/lib/api/client";
 import type { Delta, RetratoDoPainel } from "@/lib/metrics/painel";
+import type { CorpoDasMetas } from "@/lib/metrics/painel-metas";
+
+import { EquipeDoPeriodo } from "./EquipeDoPeriodo";
+import { FunilDoPeriodo } from "./FunilDoPeriodo";
+import { MetasDoPeriodo } from "./MetasDoPeriodo";
 import { FUSO_DO_PAINEL, type PeriodoPainel } from "@/lib/metrics/painel-periodo";
 import { formatarDuracao } from "@/lib/metrics/canais";
 import { formatCents } from "@/lib/money";
@@ -166,6 +173,7 @@ function BlocoMeta({
 export function PainelClient({ podeConectar }: { podeConectar: boolean }) {
   const t = useT();
   const tag = useTagDeIdioma();
+  const queryClient = useQueryClient();
   const [periodo, setPeriodo] = useState<PeriodoPainel>("hoje");
   const { data, isLoading, isError, isFetching, dataUpdatedAt, refetch } = usePainel(periodo);
 
@@ -244,13 +252,28 @@ export function PainelClient({ podeConectar }: { podeConectar: boolean }) {
           primary={{ label: t("Tentar de novo"), onClick: () => void refetch() }}
         />
       ) : (
-        <Grade resposta={data.data} podeConectar={podeConectar} />
+        <Grade
+          resposta={data.data}
+          podeConectar={podeConectar}
+          aoGravar={async (corpo) => {
+            await apiClient.put("/api/v1/metrics/painel/metas", corpo);
+            await queryClient.invalidateQueries({ queryKey: ["metrics", "painel"] });
+          }}
+        />
       )}
     </div>
   );
 }
 
-function Grade({ resposta, podeConectar }: { resposta: RespostaDoPainel; podeConectar: boolean }) {
+function Grade({
+  resposta,
+  podeConectar,
+  aoGravar,
+}: {
+  resposta: RespostaDoPainel;
+  podeConectar: boolean;
+  aoGravar: (corpo: CorpoDasMetas) => Promise<void>;
+}) {
   const t = useT();
   const { atual, anterior, comparacao } = resposta;
   const vendasPorMoeda = new Map<
@@ -271,6 +294,9 @@ function Grade({ resposta, podeConectar }: { resposta: RespostaDoPainel; podeCon
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
+      <MetasDoPeriodo bloco={resposta.metas} aoGravar={aoGravar} />
+      <FunilDoPeriodo funil={resposta.funil} />
+      <EquipeDoPeriodo equipe={resposta.equipe} />
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-2">
           <CardTitle>{t("Leads novos")}</CardTitle>

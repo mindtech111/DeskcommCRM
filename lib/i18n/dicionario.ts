@@ -16344,7 +16344,81 @@ export const DICIONARIO: Traducoes = {
   },
   "Período inválido.": { es: "Período no válido." },
   "Não foi possível ler o painel agora.": { es: "No fue posible leer el panel ahora." },
+  "O dia da operação, atualizado a cada minuto: metas, funil, quem vende, leads, conversas, consultas, vendas e anúncios.": {
+    es: "El día de la operación, actualizado cada minuto: metas, embudo, quién vende, leads, conversaciones, consultas, ventas y anuncios.",
+  },
+  "Metas e realizado, o funil do período e o comparativo de quem vende, junto dos números de leads, conversas e anúncios.": {
+    es: "Metas y realizado, el embudo del período y la comparación de quién vende, junto a los números de leads, conversaciones y anuncios.",
+  },
+  "Meta e realizado": { es: "Meta y realizado" },
+  "A meta acompanha o tempo já decorrido nesta janela. Nos 30 dias, a meta do mês substitui a diária, na proporção do mês.": {
+    es: "La meta acompaña el tiempo ya transcurrido en esta ventana. En 30 días, la meta del mes reemplaza a la diaria, en proporción al mes.",
+  },
+  "Ainda não há meta. O número abaixo é o que aconteceu.": {
+    es: "Todavía no hay meta. El número de abajo es lo que ocurrió.",
+  },
+  "Fechar edição": { es: "Cerrar edición" },
+  "Editar a meta": { es: "Editar la meta" },
+  "Definir a meta da clínica": { es: "Definir la meta de la clínica" },
+  "Leads atendidos": { es: "Leads atendidos" },
+  "Agendamentos": { es: "Citas" },
+  "Consultas realizadas": { es: "Consultas realizadas" },
+  "Valor ganho": { es: "Valor ganado" },
+  "Leads que chegaram no período. É o mesmo número de Leads novos.": {
+    es: "Leads que llegaron en el período. Es el mismo número de Leads nuevos.",
+  },
+  "Entradas na etapa Consulta agendada.": { es: "Entradas en la etapa Consulta agendada." },
+  "Entradas na etapa Consulta realizada.": { es: "Entradas en la etapa Consulta realizada." },
+  "Leads marcados como ganhos no período.": { es: "Leads marcados como ganados en el período." },
+  "Valor ganho na moeda da meta.": { es: "Valor ganado en la moneda de la meta." },
+  "Defina a moeda da meta para comparar o valor quando há mais de uma.": {
+    es: "Define la moneda de la meta para comparar el valor cuando hay más de una.",
+  },
+  "Sem meta neste indicador.": { es: "Sin meta en este indicador." },
+  "Meta do período": { es: "Meta del período" },
+  "Valor inválido. Use 1500 ou 1500,50.": { es: "Valor no válido. Usa 1500 o 1500,50." },
+  "Informe a moeda do valor com três letras, por exemplo BRL.": {
+    es: "Indica la moneda del valor con tres letras, por ejemplo BRL.",
+  },
+  "Não consegui salvar a meta.": { es: "No pude guardar la meta." },
+  "Meta diária": { es: "Meta diaria" },
+  "Meta do mês": { es: "Meta del mes" },
+  "Opcional. Nos últimos 30 dias ela vale no lugar da diária.": {
+    es: "Opcional. En los últimos 30 días vale en lugar de la diaria.",
+  },
+  "Salvar meta": { es: "Guardar meta" },
+  "Funil do período": { es: "Embudo del período" },
+  "Lead novo": { es: "Lead nuevo" },
+  "Cada etapa conta o que entrou nela neste período. A taxa compara a etapa de baixo com a de cima e pode passar de 100% quando chega gente que entrou antes.": {
+    es: "Cada etapa cuenta lo que entró en ella en este período. La tasa compara la etapa de abajo con la de arriba y puede pasar de 100% cuando llega gente que entró antes.",
+  },
+  "Em atendimento conta a etapa com esse nome. Consulta agendada e Consulta realizada usam a mesma conta dos cards.": {
+    es: "En atención cuenta la etapa con ese nombre. Consulta agendada y Consulta realizada usan la misma cuenta de las tarjetas.",
+  },
+  "Quem vende": { es: "Quién vende" },
+  "Entram pessoas com papel de vendas e quem recebeu lead, respondeu ou vendeu no período.": {
+    es: "Entran las personas con papel de ventas y quien recibió un lead, respondió o vendió en el período.",
+  },
+  "Ninguém com papel de vendas, e nenhum lead atribuído neste período.": {
+    es: "Nadie con papel de ventas, y ningún lead asignado en este período.",
+  },
+  "Mensagens enviadas": { es: "Mensajes enviados" },
+  "Primeira resposta humana": { es: "Primera respuesta humana" },
+  "Leads recebidos por dia": { es: "Leads recibidos por día" },
+  "Papel de vendas": { es: "Papel de ventas" },
+  "Papel de gerência": { es: "Papel de gerencia" },
+  "Papel de administração": { es: "Papel de administración" },
+  "Papel de leitura": { es: "Papel de lectura" },
+  "Mostrando as 40 pessoas com mais leads recebidos.": {
+    es: "Mostrando las 40 personas con más leads recibidos.",
+  },
+  "A mediana de cada pessoa é a primeira resposta humana que ela enviou. O card de primeira resposta, acima, inclui qualquer saída.": {
+    es: "La mediana de cada persona es la primera respuesta humana que ella envió. La tarjeta de primera respuesta, arriba, incluye cualquier salida.",
+  },
+  "Meta inválida.": { es: "Meta no válida." },
+  "Não foi possível salvar a meta.": { es: "No fue posible guardar la meta." },
 };
+
 
 /**
  * Traduz, ou devolve o próprio texto.

@@ -12,11 +12,16 @@ import { NextRequest } from "next/server";
 
 import { requireRole } from "@/lib/auth/require-role";
 import type { AuthUser } from "@/lib/auth/types";
+import { comercialVazio, type ComercialDoPainel } from "@/lib/metrics/painel-comercial";
 import { retratoVazio, type RetratoDoPainel } from "@/lib/metrics/painel";
 import { createClient } from "@/lib/supabase/server";
+import { nomesDosAtendentes } from "@/lib/users/nome-do-atendente";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
+vi.mock("@/lib/users/nome-do-atendente", () => ({
+  nomesDosAtendentes: vi.fn(async () => new Map<string, string | null>()),
+}));
 
 const ORG_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -47,18 +52,43 @@ function retrato(parcial: Partial<RetratoDoPainel> = {}): RetratoDoPainel {
   };
 }
 
-function fakeSupabase(respostas: Array<{ data: unknown; error: { message: string } | null }>) {
+function fakeSupabase(
+  respostas: Array<{ data: unknown; error: { message: string } | null }>,
+  comercial: ComercialDoPainel = comercialVazio(),
+) {
   const chamadas: Array<{ nome: string; args: Record<string, unknown> }> = [];
   let i = 0;
+  const consulta = {
+    select() {
+      return consulta;
+    },
+    eq() {
+      return consulta;
+    },
+    maybeSingle() {
+      return Promise.resolve({ data: null, error: null });
+    },
+  };
   const client = {
     rpc(nome: string, args: Record<string, unknown>) {
       chamadas.push({ nome, args });
+      if (nome === "fn_painel_comercial") {
+        return Promise.resolve({ data: comercial, error: null });
+      }
       const resposta = respostas[i] ?? respostas[respostas.length - 1];
       i += 1;
       return Promise.resolve(resposta);
     },
+    from(tabela: string) {
+      if (tabela !== "painel_metas") throw new Error(`tabela inesperada: ${tabela}`);
+      return consulta;
+    },
   };
   return { chamadas, client };
+}
+
+function chamadasDoRetrato(chamadas: Array<{ nome: string; args: Record<string, unknown> }>) {
+  return chamadas.filter((c) => c.nome === "fn_painel_diario");
 }
 
 async function chamar(url: string): Promise<Response> {
@@ -99,10 +129,15 @@ describe("GET /api/v1/metrics/painel", () => {
     );
     expect(corpo.periodo).toBe("hoje");
     expect(corpo.fuso).toBe("America/Sao_Paulo");
-    expect(chamadas).toHaveLength(2);
-    expect(chamadas.every((c) => c.nome === "fn_painel_diario")).toBe(true);
+    const doDiario = chamadasDoRetrato(chamadas);
+    expect(doDiario).toHaveLength(2);
+    expect(chamadas.filter((c) => c.nome === "fn_painel_comercial")).toHaveLength(1);
     expect(chamadas.every((c) => c.args.p_org === ORG_ID)).toBe(true);
-    const ordenadas = [...chamadas].sort(
+    expect(corpo.metas).toMatchObject({ definida: false });
+    expect(corpo.funil).toMatchObject({
+      etapas: expect.arrayContaining([{ id: "lead_novo", total: 0 }]),
+    });
+    const ordenadas = [...doDiario].sort(
       (a, b) => Date.parse(String(a.args.p_inicio)) - Date.parse(String(b.args.p_inicio)),
     );
     const antes = ordenadas[0]?.args as { p_inicio: string; p_fim: string };
@@ -136,7 +171,7 @@ describe("GET /api/v1/metrics/painel", () => {
       custo_por_lead_cents: null,
       motivo: "sem_conexao",
     });
-    const atual = [...chamadas].sort(
+    const atual = [...chamadasDoRetrato(chamadas)].sort(
       (a, b) => Date.parse(String(b.args.p_inicio)) - Date.parse(String(a.args.p_inicio)),
     )[0]?.args as { p_inicio: string; p_fim: string };
     const tamanho = Date.parse(atual.p_fim) - Date.parse(atual.p_inicio);
@@ -176,6 +211,50 @@ describe("GET /api/v1/metrics/painel", () => {
     expect(res.status).toBe(500);
     const texto = await res.text();
     expect(texto).not.toContain("secret exploded");
+  });
+
+  it("o comparativo repete as pessoas que a RPC devolveu e o nome que o resolvedor achou", async () => {
+    const ana = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const bia = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const base = comercialVazio();
+    const comercial: ComercialDoPainel = {
+      ...base,
+      equipe: {
+        ...base.equipe,
+        pessoas: [ana, bia].map((user_id, i) => ({
+          user_id,
+          papel: "agent",
+          leads_recebidos: i + 1,
+          por_dia: [{ dia: "2026-11-26", total: i + 1 }],
+          mensagens_enviadas: 2,
+          p50_segundos: 40,
+          amostra_resposta: 1,
+          agendamentos: 0,
+          consultas_realizadas: 0,
+          vendas: 0,
+          valor_por_moeda: [],
+          conversao: 0,
+        })),
+      },
+    };
+    vi.mocked(nomesDosAtendentes).mockResolvedValue(
+      new Map([
+        [ana, "Ana"],
+        [bia, "Bia"],
+      ]),
+    );
+    const { client } = fakeSupabase([{ data: retratoVazio(), error: null }], comercial);
+    vi.mocked(createClient).mockResolvedValue(client as never);
+
+    const res = await chamar("http://localhost/api/v1/metrics/painel");
+    expect(res.status).toBe(200);
+    const corpo = (
+      (await res.json()) as {
+        data: { equipe: { pessoas: Array<{ user_id: string; nome: string | null }> } };
+      }
+    ).data;
+    expect(corpo.equipe.pessoas.map((p) => p.nome).sort()).toEqual(["Ana", "Bia"]);
+    expect(JSON.stringify(corpo.equipe)).not.toMatch(/Isabela|Fernanda/);
   });
 
   it("a rota é leitura: não importa audit nem client de service role", () => {

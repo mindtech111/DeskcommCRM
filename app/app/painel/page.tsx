@@ -28,7 +28,9 @@ export default async function PainelPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">{t("Painel")}</h1>
         <p className="text-sm text-muted-foreground">
-          {t("Leads, conversas, consultas e vendas do período, ao lado do que aconteceu antes.")}
+          {t(
+            "Metas e realizado, o funil do período e o comparativo de quem vende, junto dos números de leads, conversas e anúncios.",
+          )}
         </p>
       </header>
       <PainelClient podeConectar={podeConectar} />
