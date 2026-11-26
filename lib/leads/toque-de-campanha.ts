@@ -48,17 +48,19 @@ export function limparEtiqueta(valor: string | undefined | null): string | null 
 }
 
 /**
- * A tag da campanha é o `utm_campaign`. A tag da origem é
- * `utm_source/utm_medium` — `revi` + `vb` vira `revi/vb`. Sem os dois, fica
- * só a origem. Sem origem nenhuma, a tag genérica é `rastreio`.
+ * A tag da campanha é o `utm_campaign`. A tag da origem:
+ *
+ * - `utm_source` revi → `revi/vb`, qualquer que seja o meio (em produção o
+ *   meio é `whatsapp`, e a etiqueta ainda é `revi/vb`);
+ * - outra origem → o próprio `utm_source`;
+ * - sem origem → `rastreio`.
  */
 export function etiquetasDoToque(utm: Record<string, string>): string[] {
   const tags: string[] = [];
   const campanha = limparEtiqueta(utm.utm_campaign);
   if (campanha) tags.push(campanha);
   const source = limparEtiqueta(utm.utm_source);
-  const medium = limparEtiqueta(utm.utm_medium);
-  if (source && medium) tags.push(`${source}/${medium}`);
+  if (source?.toLowerCase() === "revi") tags.push("revi/vb");
   else if (source) tags.push(source);
   else tags.push("rastreio");
   return [...new Set(tags)];

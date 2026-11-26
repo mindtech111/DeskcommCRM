@@ -75,7 +75,7 @@ Linha sem valor não aparece: um travessão em cinco linhas seguidas lê como de
 ## Limites declarados
 
 - **O `[dk1:]` vale só na PRIMEIRA mensagem do contato, e não sobrescreve o primeiro toque.** Quem chegou de anúncio pago primeiro mantém o anúncio pago; quem chegou do site primeiro mantém o site.
-- **O `[ref:]` ainda não consumido vale em qualquer mensagem.** Contato que já existe ganha o último toque (`source_metadata.last_touch` e a lista `touches`) e as etiquetas da campanha, no contato e no card aberto. A origem original (`source` e as UTMs do primeiro toque) não é reescrita. Sem card aberto, o card nasce no funil de entrada, como antes.
+- **O `[ref:]` ainda não consumido vale em qualquer mensagem.** Contato que já existe ganha o último toque (`source_metadata.last_touch` e a lista `touches`) e as etiquetas, no contato e no card aberto: a campanha (`utm_campaign`) e a origem. Origem `revi` vira a etiqueta `revi/vb` qualquer que seja o meio; outra origem usa o próprio `utm_source`; sem origem, `rastreio`. A origem original (`source` e as UTMs do primeiro toque) não é reescrita. Sem card aberto, o card nasce no funil de entrada, como antes.
 - **Um ref só é consumido uma vez.** O mesmo texto encaminhado adiante não vira atribuição de quem o recebeu. As contagens do link (cliques, contatos, cards) continuam saindo de `contact_id` gravado nesse consumo.
 - **Posicionamento não existe no clique-para-WhatsApp.** A plataforma expõe *placement* só em breakdown de insights agregado, nunca por clique individual.
 - **Falha de captura nunca vira tela de erro.** Todo caminho ruim do endereço de captura devolve o WhatsApp — sem o código, se for o caso. Clique de anúncio é dinheiro gasto: perder a atribuição é aceitável, perder o lead não.

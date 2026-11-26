@@ -27,11 +27,12 @@ describe("toque de campanha", () => {
     });
   });
 
-  it("etiqueta revi/vb quando a origem é revi e o meio é vb; sem origem, a tag é rastreio", () => {
+  it("revi vira a etiqueta revi/vb mesmo com meio whatsapp; outra origem usa o próprio utm_source", () => {
     expect(
-      etiquetasDoToque({ utm_source: "revi", utm_medium: "vb", utm_campaign: "inverno" }),
-    ).toEqual(["inverno", "revi/vb"]);
-    expect(etiquetasDoToque({ utm_source: "instagram" })).toEqual(["instagram"]);
+      etiquetasDoToque({ utm_source: "revi", utm_medium: "whatsapp", utm_campaign: "revi_vb" }),
+    ).toEqual(["revi_vb", "revi/vb"]);
+    expect(etiquetasDoToque({ utm_source: "revi", utm_medium: "vb" })).toEqual(["revi/vb"]);
+    expect(etiquetasDoToque({ utm_source: "instagram", utm_medium: "cpc" })).toEqual(["instagram"]);
     expect(etiquetasDoToque({})).toEqual(["rastreio"]);
   });
 

@@ -75,7 +75,7 @@ const envio = {
   webhookSourceId: "fonte-1",
   contactId: "contato-1",
   externalId: "ext-1",
-  utm: { utm_source: "revi", utm_medium: "vb", utm_campaign: "inverno" },
+  utm: { utm_source: "revi", utm_medium: "whatsapp", utm_campaign: "revi_vb" },
   tags: ["lista"],
   campos: ["nome", "telefone", "utm_campaign"],
   captureSource: "revi",
@@ -100,14 +100,14 @@ describe("reuso do card aberto", () => {
     const fundido = fundirUtm({ utm_source: "organico", cliente: "ana" }, envio.utm);
     expect(fundido.utm_source).toBe("revi");
     expect(fundido.cliente).toBe("ana");
-    expect(fundido.utm_campaign).toBe("inverno");
+    expect(fundido.utm_campaign).toBe("revi_vb");
   });
 
   it("não abre outro card: junta tag, anota e emite lead.updated", async () => {
     const resultado = await reusarCardAberto(admin() as never, CARD, envio);
     expect(resultado).toEqual({ reusado: true, leadId: "lead-1", repetido: false });
     const lead = estado.updates.find((item) => item.tabela === "crm_leads");
-    expect(lead?.payload.tags).toEqual(["vip", "lista", "inverno", "revi/vb"]);
+    expect(lead?.payload.tags).toEqual(["vip", "lista", "revi_vb", "revi/vb"]);
     expect(lead?.payload).not.toHaveProperty("source");
     expect(lead?.payload).not.toHaveProperty("external_id");
     const meta = lead?.payload.source_metadata as { external_ids_reaproveitados: string[] };
@@ -140,6 +140,7 @@ describe("reuso do card aberto", () => {
     expect(etiquetasDoEnvio(envio.utm, { tags: "vip, inverno" })).toEqual([
       "vip",
       "inverno",
+      "revi_vb",
       "revi/vb",
     ]);
     expect(etiquetasDoEnvio({}, { etiquetas: "retorno" })).toEqual(["retorno"]);

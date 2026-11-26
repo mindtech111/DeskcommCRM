@@ -14,7 +14,7 @@ import {
 } from "@/lib/leads/aplicar-toque-de-campanha";
 
 const TOQUE = montarToque({
-  utm: { utm_source: "revi", utm_medium: "vb", utm_campaign: "inverno" },
+  utm: { utm_source: "revi", utm_medium: "whatsapp", utm_campaign: "revi_vb" },
   trackingLinkId: "link-1",
   ref: "K7M2P9",
   at: "2026-11-26T12:00:00.000Z",
@@ -73,7 +73,7 @@ const alvo = {
   organizationId: "org-1",
   contactId: "contato-1",
   toque: TOQUE,
-  utm: { utm_source: "revi", utm_medium: "vb", utm_campaign: "inverno" },
+  utm: { utm_source: "revi", utm_medium: "whatsapp", utm_campaign: "revi_vb" },
 };
 
 beforeEach(() => {
@@ -97,7 +97,7 @@ describe("gravar o toque sem mexer na origem", () => {
     await gravarToqueNoContato(admin() as never, alvo);
     const gravado = estado.updates.find((item) => item.tabela === "contacts");
     expect(gravado?.payload).not.toHaveProperty("source");
-    expect(gravado?.payload.tags).toEqual(["vip", "inverno", "revi/vb"]);
+    expect(gravado?.payload.tags).toEqual(["vip", "revi_vb", "revi/vb"]);
     const meta = gravado?.payload.source_metadata as {
       utm_source: string;
       last_touch: { ref: string };
@@ -125,7 +125,7 @@ describe("gravar o toque sem mexer na origem", () => {
   it("o mesmo ref não grava de novo", async () => {
     estado.contato = {
       source_metadata: { touches: [TOQUE], last_touch: TOQUE },
-      tags: ["vip", "inverno", "revi/vb"],
+      tags: ["vip", "revi_vb", "revi/vb"],
     };
     const gravou = await gravarToqueNoContato(admin() as never, alvo);
     expect(gravou).toBe(false);

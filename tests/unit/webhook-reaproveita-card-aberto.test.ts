@@ -108,9 +108,9 @@ beforeEach(() => {
 const CORPO = {
   nome: "Ana",
   telefone: "+5511999990000",
-  campanha: "inverno",
   utm_source: "revi",
-  utm_medium: "vb",
+  utm_medium: "whatsapp",
+  utm_campaign: "revi_vb",
 };
 
 describe("POST /api/v1/webhooks/in reaproveita o card aberto", () => {
@@ -145,7 +145,8 @@ describe("POST /api/v1/webhooks/in reaproveita o card aberto", () => {
       tags?: string[];
     };
     expect(entrada?.source).toBe("revi");
-    expect(entrada?.tags).toEqual(expect.arrayContaining(["inverno", "revi/vb"]));
+    expect(entrada?.tags).toEqual(expect.arrayContaining(["revi_vb", "revi/vb"]));
+    expect(entrada?.tags).not.toContain("revi/whatsapp");
     expect(desfecho()).toBe("criado");
     expect(res.status).toBe(200);
   });
