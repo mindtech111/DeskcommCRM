@@ -180,11 +180,13 @@ export function blocoDeMetas(
   mesMs: number,
 ): BlocoDeMetas {
   const g = gravadas;
-  const valor = valorRealizado(retrato, g?.moeda ?? null);
-  const alvoDe = (dia: number | null, mes: number | null) =>
-    alvoProporcional(dia, mes, periodo, janelaMs, mesMs);
   const temMetaDeValor =
     (g?.valor_cents_dia ?? null) != null || (g?.valor_cents_mes ?? null) != null;
+  // Moeda gravada sem alvo de valor não filtra o realizado: senão uma venda
+  // em outra moeda aparece como zero depois que a meta de valor foi apagada.
+  const valor = valorRealizado(retrato, temMetaDeValor ? (g?.moeda ?? null) : null);
+  const alvoDe = (dia: number | null, mes: number | null) =>
+    alvoProporcional(dia, mes, periodo, janelaMs, mesMs);
   const base = {
     aviso: null,
   } as const;

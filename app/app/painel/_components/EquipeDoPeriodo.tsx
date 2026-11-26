@@ -12,7 +12,7 @@ import {
 import { useT } from "@/hooks/i18n/useT";
 import { formatarDuracao } from "@/lib/metrics/canais";
 import type { PessoaDaEquipe } from "@/lib/metrics/painel-comercial";
-import { formatCents } from "@/lib/money";
+import { formatValorDoNegocio } from "@/lib/money";
 
 interface SemResponsavel {
   leads_recebidos: number;
@@ -51,7 +51,7 @@ function textoDoValor(
   return linhas
     .map((linha) =>
       linha.moeda && /^[A-Z]{3}$/.test(linha.moeda)
-        ? formatCents(linha.valor_cents, linha.moeda)
+        ? formatValorDoNegocio(linha.valor_cents, linha.moeda)
         : t("Sem moeda"),
     )
     .join(" · ");
@@ -189,7 +189,7 @@ export function EquipeDoPeriodo({
         ) : null}
         <p className="text-xs text-muted-foreground">
           {t(
-            "A mediana de cada pessoa é a primeira resposta humana que ela enviou. O card de primeira resposta, acima, inclui qualquer saída.",
+            "A mediana é das conversas que começaram neste período e cuja primeira resposta humana foi desta pessoa. Uma resposta de hoje a uma mensagem de ontem não entra. O card de cima usa o mesmo recorte de conversa nova e inclui também a saída automática.",
           )}
         </p>
       </CardContent>

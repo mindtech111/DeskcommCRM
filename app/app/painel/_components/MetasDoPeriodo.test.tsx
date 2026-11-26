@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { blocoDeMetas, type MetasGravadas } from "@/lib/metrics/painel-metas";
@@ -59,6 +59,31 @@ describe("meta do painel na tela", () => {
     expect(barra).toHaveAttribute("aria-valuenow", "5");
     expect(screen.getByRole("button", { name: "Editar a meta" })).toBeInTheDocument();
   });
+
+  it("abre o editor com a meta que acabou de chegar, não com a da primeira pintura", async () => {
+    const retrato = retratoVazio();
+    const aoGravar = vi.fn(async () => undefined);
+    const primeiro = blocoDeMetas(
+      gravadas({ leads_atendidos_dia: 10 }),
+      retrato,
+      "hoje",
+      DIA,
+      30 * DIA,
+    );
+    const { rerender } = render(<MetasDoPeriodo bloco={primeiro} aoGravar={aoGravar} />);
+    rerender(
+      <MetasDoPeriodo
+        bloco={blocoDeMetas(gravadas({ leads_atendidos_dia: 15 }), retrato, "hoje", DIA, 30 * DIA)}
+        aoGravar={aoGravar}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Editar a meta" }));
+    fireEvent.change(document.getElementById("meta-vendas-dia")!, { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar meta" }));
+    expect(aoGravar).toHaveBeenCalledWith(
+      expect.objectContaining({ leads_atendidos_dia: 15, vendas_dia: 3 }),
+    );
+  });
 });
 
 describe("comparativo de quem vende", () => {
@@ -90,7 +115,7 @@ describe("comparativo de quem vende", () => {
               agendamentos: 1,
               consultas_realizadas: 0,
               vendas: 1,
-              valor_por_moeda: [{ moeda: "BRL", quantidade: 1, valor_cents: 10000 }],
+              valor_por_moeda: [{ moeda: "PYG", quantidade: 1, valor_cents: 12_500_000 }],
               conversao: 1 / 3,
             },
             {
@@ -112,6 +137,8 @@ describe("comparativo de quem vende", () => {
         }}
       />,
     );
+    expect(screen.getByText("Gs. 125.000")).toBeInTheDocument();
+    expect(screen.queryByText(/12\.500\.000/)).not.toBeInTheDocument();
     expect(screen.getByText("Ana")).toBeInTheDocument();
     expect(screen.getByText("Sem nome bbbbbbbb")).toBeInTheDocument();
     expect(screen.getByText("Papel de vendas")).toBeInTheDocument();

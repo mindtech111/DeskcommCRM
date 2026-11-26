@@ -16412,8 +16412,8 @@ export const DICIONARIO: Traducoes = {
   "Mostrando as 40 pessoas com mais leads recebidos.": {
     es: "Mostrando las 40 personas con más leads recibidos.",
   },
-  "A mediana de cada pessoa é a primeira resposta humana que ela enviou. O card de primeira resposta, acima, inclui qualquer saída.": {
-    es: "La mediana de cada persona es la primera respuesta humana que ella envió. La tarjeta de primera respuesta, arriba, incluye cualquier salida.",
+  "A mediana é das conversas que começaram neste período e cuja primeira resposta humana foi desta pessoa. Uma resposta de hoje a uma mensagem de ontem não entra. O card de cima usa o mesmo recorte de conversa nova e inclui também a saída automática.": {
+    es: "La mediana es de las conversaciones que empezaron en este período y cuya primera respuesta humana fue de esta persona. Una respuesta de hoy a un mensaje de ayer no entra. La tarjeta de arriba usa el mismo recorte de conversación nueva e incluye también la salida automática.",
   },
   "Meta inválida.": { es: "Meta no válida." },
   "Não foi possível salvar a meta.": { es: "No fue posible guardar la meta." },

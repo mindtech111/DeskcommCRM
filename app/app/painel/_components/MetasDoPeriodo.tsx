@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useT } from "@/hooks/i18n/useT";
 import { ApiError } from "@/lib/api/types";
-import { formatCents, parseReaisToCents } from "@/lib/money";
+import { formatValorDoNegocio, parseReaisToCents } from "@/lib/money";
 import type { IndicadorDeMeta, MetasGravadas, CorpoDasMetas } from "@/lib/metrics/painel-metas";
 import {
   progresso,
@@ -48,7 +48,7 @@ function explicacao(id: IndicadorDeMeta["id"], t: (texto: string) => string): st
 
 function textoDoRealizado(indicador: IndicadorDeMeta): string {
   if (indicador.id === "valor" && indicador.moeda) {
-    return formatCents(indicador.realizado, indicador.moeda);
+    return formatValorDoNegocio(indicador.realizado, indicador.moeda);
   }
   return String(indicador.realizado);
 }
@@ -56,7 +56,7 @@ function textoDoRealizado(indicador: IndicadorDeMeta): string {
 function textoDoAlvo(indicador: IndicadorDeMeta): string {
   if (indicador.alvo == null) return "";
   if (indicador.id === "valor" && indicador.moeda) {
-    return formatCents(indicador.alvo, indicador.moeda);
+    return formatValorDoNegocio(indicador.alvo, indicador.moeda);
   }
   return textoDaMeta(indicador.alvo);
 }
@@ -246,7 +246,19 @@ export function MetasDoPeriodo({
               : t("Ainda não há meta. O número abaixo é o que aconteceu.")}
           </p>
         </div>
-        <Button type="button" variant="secondary" onClick={() => setAberto((v) => !v)}>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => {
+            setAberto((estaAberto) => {
+              if (!estaAberto) {
+                setRascunho(rascunhoDe(bloco.gravadas));
+                setErro(null);
+              }
+              return !estaAberto;
+            });
+          }}
+        >
           {aberto
             ? t("Fechar edição")
             : bloco.definida

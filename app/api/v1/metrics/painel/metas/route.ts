@@ -2,7 +2,12 @@
  * PUT /api/v1/metrics/painel/metas
  *
  * Grava a meta diária e, se vier, a mensal da organização ativa. A organização
- * sai da sessão, nunca do corpo. Piso manager. A RLS repete o piso na tabela.
+ * sai da sessão, nunca do corpo. Piso manager, ou admin de plataforma com
+ * escopo full — o mesmo recorte da página. O MFA é o de `requireRole`.
+ *
+ * A escrita usa service role porque `authenticated` não tem GRANT de escrita
+ * em `painel_metas`. Sem isso, o PostgREST gravaria com o JWT e pularia o MFA
+ * e esta auditoria. O filtro de organização é `activeOrg.orgId`.
  */
 import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
@@ -14,7 +19,7 @@ import { traduzir } from "@/lib/i18n/dicionario";
 import { requireSupportWrite } from "@/lib/impersonate/support";
 import { logger } from "@/lib/logger";
 import { gravarMetasSchema } from "@/lib/metrics/painel-metas";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -46,15 +51,16 @@ export async function PUT(req: NextRequest): Promise<Response> {
     });
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.from("painel_metas").upsert(
-    {
-      organization_id: activeOrg.orgId,
-      ...parsed.data,
-      updated_by: user.id,
-    },
-    { onConflict: "organization_id" },
-  );
+  const { error } = await createAdminClient()
+    .from("painel_metas")
+    .upsert(
+      {
+        organization_id: activeOrg.orgId,
+        ...parsed.data,
+        updated_by: user.id,
+      },
+      { onConflict: "organization_id" },
+    );
   if (error) {
     logger.error("[metrics.painel.metas] gravação falhou", {
       requestId,

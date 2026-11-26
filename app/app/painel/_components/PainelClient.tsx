@@ -28,7 +28,7 @@ import { FunilDoPeriodo } from "./FunilDoPeriodo";
 import { MetasDoPeriodo } from "./MetasDoPeriodo";
 import { FUSO_DO_PAINEL, type PeriodoPainel } from "@/lib/metrics/painel-periodo";
 import { formatarDuracao } from "@/lib/metrics/canais";
-import { formatCents } from "@/lib/money";
+import { formatCents, formatValorDoNegocio } from "@/lib/money";
 import { Megaphone, WarningOctagon } from "@/lib/ui/icons";
 
 function rotuloLivre(valor: string, t: (texto: string) => string): string {
@@ -74,7 +74,7 @@ function Numero({
 
 function dinheiro(cents: number, moeda: string | null, t: (texto: string) => string): string {
   if (!moeda || !/^[A-Z]{3}$/.test(moeda)) return t("Sem moeda");
-  return formatCents(cents, moeda);
+  return formatValorDoNegocio(cents, moeda);
 }
 
 function TabelaSimples({

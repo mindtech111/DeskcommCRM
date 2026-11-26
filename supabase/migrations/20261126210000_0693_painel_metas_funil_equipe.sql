@@ -3,8 +3,13 @@
 --
 -- Não havia onde gravar meta comercial. As tabelas `meta_*` são anúncio
 -- (Meta Ads), não alvo de venda. A meta mora aqui, uma linha por organização.
--- Quem lê é membro da organização; quem grava é gerente ou admin
--- (fn_role_at_least manager, que inclui admin). A rota repete o piso.
+-- Quem lê é membro da organização. Quem grava pela REST autenticada, ninguém:
+-- insert/update/delete ficam só no service_role. A rota prova MFA (requireRole),
+-- o acompanhamento e o papel, e grava com a organização da sessão. A policy de
+-- escrita continua no arquivo para o grant não voltar aberto: gerente, ou admin
+-- de plataforma com escopo full, e o acompanhamento só de leitura não escreve.
+-- fn_session_mfa_proven não entra na policy — authenticated não executa essa
+-- função. A prova de MFA mora na rota, que é a única porta de escrita.
 --
 -- fn_painel_comercial é SECURITY INVOKER, no mesmo molde de fn_painel_diario
 -- (0692): a RLS de leads, atividades, mensagens, etapas, conversas e membros
@@ -80,7 +85,11 @@ create policy tenant_isolation_painel_metas_insert
   for insert
   with check (
     organization_id in (select public.fn_user_org_ids())
-    and public.fn_role_at_least(organization_id, 'manager')
+    and public.fn_support_write_allowed(organization_id)
+    and (
+      public.fn_role_at_least(organization_id, 'manager')
+      or public.fn_is_platform_admin_full()
+    )
   );
 
 drop policy if exists tenant_isolation_painel_metas_update on public.painel_metas;
@@ -89,11 +98,19 @@ create policy tenant_isolation_painel_metas_update
   for update
   using (
     organization_id in (select public.fn_user_org_ids())
-    and public.fn_role_at_least(organization_id, 'manager')
+    and public.fn_support_write_allowed(organization_id)
+    and (
+      public.fn_role_at_least(organization_id, 'manager')
+      or public.fn_is_platform_admin_full()
+    )
   )
   with check (
     organization_id in (select public.fn_user_org_ids())
-    and public.fn_role_at_least(organization_id, 'manager')
+    and public.fn_support_write_allowed(organization_id)
+    and (
+      public.fn_role_at_least(organization_id, 'manager')
+      or public.fn_is_platform_admin_full()
+    )
   );
 
 drop policy if exists tenant_isolation_painel_metas_delete on public.painel_metas;
@@ -102,11 +119,17 @@ create policy tenant_isolation_painel_metas_delete
   for delete
   using (
     organization_id in (select public.fn_user_org_ids())
-    and public.fn_role_at_least(organization_id, 'manager')
+    and public.fn_support_write_allowed(organization_id)
+    and (
+      public.fn_role_at_least(organization_id, 'manager')
+      or public.fn_is_platform_admin_full()
+    )
   );
 
-revoke all on table public.painel_metas from public, anon;
-grant select, insert, update, delete on table public.painel_metas to authenticated;
+-- Escrita autenticada revogada de propósito. O PostgREST com o JWT da sessão
+-- não grava meta: pularia o MFA e a auditoria da rota. authenticated só lê.
+revoke all on table public.painel_metas from public, anon, authenticated;
+grant select on table public.painel_metas to authenticated;
 grant all on table public.painel_metas to service_role;
 
 drop trigger if exists trg_painel_metas_updated_at on public.painel_metas;

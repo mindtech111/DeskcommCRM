@@ -93,6 +93,18 @@ describe("bloco de metas", () => {
     });
   });
 
+  it("moeda gravada sem meta de valor não zera venda em outra moeda", () => {
+    const retrato = retratoVazio();
+    retrato.vendas.por_moeda = [{ moeda: "USD", quantidade: 1, valor_cents: 2_000_000 }];
+    const bloco = blocoDeMetas(metas({ moeda: "BRL", vendas_dia: 2 }), retrato, "hoje", DIA, MES);
+    expect(bloco.indicadores.find((i) => i.id === "valor")).toMatchObject({
+      realizado: 2_000_000,
+      alvo: null,
+      moeda: "USD",
+      aviso: null,
+    });
+  });
+
   it("com moeda na meta, o realizado é só dessa moeda", () => {
     const retrato = retratoVazio();
     retrato.vendas.por_moeda = [
@@ -141,6 +153,10 @@ describe("a cerca da RPC e do painel", () => {
     );
     expect(migration).not.toMatch(
       /grant execute on function public\.fn_painel_comercial[^;]*\banon\b/,
+    );
+    expect(migration).toContain("grant select on table public.painel_metas to authenticated;");
+    expect(migration).not.toMatch(
+      /insert, update, delete on table public\.painel_metas to authenticated/,
     );
     expect(migration).not.toMatch(/Isabela|Fernanda/);
     expect(baseline).not.toMatch(/Isabela|Fernanda/);

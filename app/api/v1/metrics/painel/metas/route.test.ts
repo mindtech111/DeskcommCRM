@@ -8,10 +8,10 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import type { AuthUser } from "@/lib/auth/types";
 import { requireSupportWrite } from "@/lib/impersonate/support";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
-vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
 vi.mock("@/lib/impersonate/support", () => ({
   requireSupportWrite: vi.fn(async () => null),
@@ -89,7 +89,7 @@ beforeEach(() => {
 describe("PUT /api/v1/metrics/painel/metas", () => {
   it("grava na organização da sessão e audita, ignorando qualquer id no corpo", async () => {
     const { upsert, client } = cliente();
-    vi.mocked(createClient).mockResolvedValue(client as never);
+    vi.mocked(createAdminClient).mockReturnValue(client as never);
 
     const res = await gravar(corpo());
     expect(res.status).toBe(200);
@@ -114,7 +114,7 @@ describe("PUT /api/v1/metrics/painel/metas", () => {
 
   it("corpo com organization_id é 422 e não grava", async () => {
     const { upsert, client } = cliente();
-    vi.mocked(createClient).mockResolvedValue(client as never);
+    vi.mocked(createAdminClient).mockReturnValue(client as never);
     const res = await gravar(corpo({ organization_id: OUTRA }));
     expect(res.status).toBe(422);
     expect(upsert).not.toHaveBeenCalled();
@@ -123,7 +123,7 @@ describe("PUT /api/v1/metrics/painel/metas", () => {
 
   it("valor sem moeda é 422", async () => {
     const { upsert, client } = cliente();
-    vi.mocked(createClient).mockResolvedValue(client as never);
+    vi.mocked(createAdminClient).mockReturnValue(client as never);
     const res = await gravar(corpo({ moeda: null }));
     expect(res.status).toBe(422);
     expect(upsert).not.toHaveBeenCalled();
@@ -131,7 +131,7 @@ describe("PUT /api/v1/metrics/painel/metas", () => {
 
   it("número negativo é 422", async () => {
     const { client } = cliente();
-    vi.mocked(createClient).mockResolvedValue(client as never);
+    vi.mocked(createAdminClient).mockReturnValue(client as never);
     const res = await gravar(corpo({ vendas_dia: -1 }));
     expect(res.status).toBe(422);
   });
@@ -143,7 +143,7 @@ describe("PUT /api/v1/metrics/painel/metas", () => {
       }) as never,
     );
     const { upsert, client } = cliente();
-    vi.mocked(createClient).mockResolvedValue(client as never);
+    vi.mocked(createAdminClient).mockReturnValue(client as never);
     const res = await gravar(corpo());
     expect(res.status).toBe(403);
     expect(upsert).not.toHaveBeenCalled();
