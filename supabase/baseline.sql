@@ -59743,9 +59743,9 @@ create policy "crm_leads_select" on public.crm_leads
 
 notify pgrst, 'reload schema';
 
--- ---- painel diário (migration 0691) ----
+-- ---- painel diário (migration 0692) ----
 -- manifest: Painel diário em /app/painel — agrega leads, mensagens, etapas de consulta, vendas e cliques da janela numa RPC security invoker, sem varrer a tabela conversations.
--- 0691: painel diário
+-- 0692: painel diário
 --
 -- A tela pede a janela de hoje, 7 ou 30 dias a cada minuto. A conta mora aqui
 -- para não paginar mil linhas pelo PostgREST (max_rows) e para o plano usar

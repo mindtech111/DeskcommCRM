@@ -2,7 +2,7 @@
  * GET /api/v1/metrics/painel?periodo=hoje|7d|30d
  *
  * Retrato do dia (ou dos últimos 7 / 30 dias civis em America/Sao_Paulo) e do
- * período anterior do mesmo tamanho. A conta é `fn_painel_diario` (0691),
+ * período anterior do mesmo tamanho. A conta é `fn_painel_diario` (0692),
  * chamada duas vezes com o client de sessão: a função é SECURITY INVOKER, a
  * RLS recorta, e a organização é a ativa — nunca a query.
  *

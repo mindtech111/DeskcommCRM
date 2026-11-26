@@ -1,5 +1,5 @@
 -- manifest: Painel diário em /app/painel — agrega leads, mensagens, etapas de consulta, vendas e cliques da janela numa RPC security invoker, sem varrer a tabela conversations.
--- 0691: painel diário
+-- 0692: painel diário
 --
 -- A tela pede a janela de hoje, 7 ou 30 dias a cada minuto. A conta mora aqui
 -- para não paginar mil linhas pelo PostgREST (max_rows) e para o plano usar
