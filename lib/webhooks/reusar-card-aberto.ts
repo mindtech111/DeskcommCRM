@@ -67,22 +67,33 @@ export function fundirUtm(metadata: unknown, utm: Record<string, string>): Recor
   return proximo;
 }
 
-export function jaReaproveitou(metadata: unknown, externalId: string | null): boolean {
+/** O recibo é da FONTE mais o id. Duas fontes podem numerar o envio igual. */
+export function reciboDoReuso(webhookSourceId: string, externalId: string): string {
+  return `${webhookSourceId}:${externalId}`;
+}
+
+export function jaReaproveitou(
+  metadata: unknown,
+  webhookSourceId: string,
+  externalId: string | null,
+): boolean {
   if (!externalId) return false;
   const ids = comoMapa(metadata)[CHAVE_DOS_IDS];
-  return Array.isArray(ids) && ids.includes(externalId);
+  return Array.isArray(ids) && ids.includes(reciboDoReuso(webhookSourceId, externalId));
 }
 
 export function marcarReaproveitado(
   metadata: Record<string, unknown>,
+  webhookSourceId: string,
   externalId: string | null,
 ): Record<string, unknown> {
   if (!externalId) return metadata;
+  const recibo = reciboDoReuso(webhookSourceId, externalId);
   const atuais = Array.isArray(metadata[CHAVE_DOS_IDS])
     ? metadata[CHAVE_DOS_IDS].filter((id): id is string => typeof id === "string")
     : [];
-  if (atuais.includes(externalId)) return metadata;
-  return { ...metadata, [CHAVE_DOS_IDS]: [...atuais, externalId].slice(-TETO_DE_IDS) };
+  if (atuais.includes(recibo)) return metadata;
+  return { ...metadata, [CHAVE_DOS_IDS]: [...atuais, recibo].slice(-TETO_DE_IDS) };
 }
 
 export interface CardAberto {
@@ -189,7 +200,7 @@ export async function reusarCardAberto(
     return { reusado: true, leadId: card.id, repetido: true };
   }
 
-  if (jaReaproveitou(card.sourceMetadata, envio.externalId)) {
+  if (jaReaproveitou(card.sourceMetadata, envio.webhookSourceId, envio.externalId)) {
     return { reusado: true, leadId: card.id, repetido: true };
   }
   if (
@@ -206,7 +217,7 @@ export async function reusarCardAberto(
   ];
   const tagsDoCard = fundirEtiquetas(card.tags, etiquetas);
   let metadata = fundirUtm(card.sourceMetadata, envio.utm);
-  metadata = marcarReaproveitado(metadata, envio.externalId);
+  metadata = marcarReaproveitado(metadata, envio.webhookSourceId, envio.externalId);
 
   const patch: Record<string, unknown> = {
     tags: tagsDoCard,
@@ -278,17 +289,9 @@ export async function reusarCardAberto(
     });
   }
 
-  const acrescentadas = tagsDoCard.filter((tag) => !card.tags.includes(tag));
-  if (acrescentadas.length > 0) {
-    await admin.rpc("emit_event", {
-      p_event_type: "lead.tag_added",
-      p_entity_kind: "crm_lead",
-      p_entity_id: card.id,
-      p_payload: { added_tags: acrescentadas, tags: tagsDoCard },
-      p_metadata: { request_id: envio.requestId, webhook_source_id: envio.webhookSourceId },
-      p_organization_id: envio.organizationId,
-    });
-  }
-
+  // Não emite `lead.tag_added`. Numa fonte sem assinatura — o padrão das
+  // fontes novas — a etiqueta veio do corpo de quem chamou a URL. Esse evento
+  // dispara automação, e um formulário público não pode mover o card de outra
+  // pessoa. A etiqueta fica no card; a nota e o `lead.updated` é que registram.
   return { reusado: true, leadId: card.id, repetido: false };
 }

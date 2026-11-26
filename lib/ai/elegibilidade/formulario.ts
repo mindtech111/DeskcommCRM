@@ -34,6 +34,58 @@ export function camposDaCaptacao(
  * A validade vai do servidor para o banco: a renovação de uma autorização vencida
  * usa a MESMA régua do gate (`AI_ALLOWLIST_TTL_DAYS`).
  */
+/**
+ * Recusa explícita num envio que REAPROVEITOU o card.
+ *
+ * `fn_authorize_ai_form_capture` só revoga quando a captação foi `criado`.
+ * O reuso grava `atualizado`, então a recusa não passaria pela função e o
+ * contato seguiria autorizado. Aqui a recusa zera a autorização e marca
+ * atendimento humano — o mesmo efeito do ramo `revoked` da função.
+ */
+export async function revogarAutorizacaoSeRecusou(
+  admin: SupabaseClient,
+  input: { organizationId: string; contactId: string; sourceId: string; recusou: boolean },
+): Promise<void> {
+  if (!input.recusou) return;
+  const { data } = await admin
+    .from("contacts")
+    .select("consent")
+    .eq("organization_id", input.organizationId)
+    .eq("id", input.contactId)
+    .maybeSingle();
+  const consent =
+    data?.consent && typeof data.consent === "object" && !Array.isArray(data.consent)
+      ? (data.consent as Record<string, unknown>)
+      : {};
+  const automated =
+    consent.automated_service && typeof consent.automated_service === "object"
+      ? (consent.automated_service as Record<string, unknown>)
+      : {};
+  const { error } = await admin
+    .from("contacts")
+    .update({
+      ai_authorized_at: null,
+      ai_authorized_reason: null,
+      force_human: true,
+      consent: {
+        ...consent,
+        automated_service: {
+          ...automated,
+          declined_at: new Date().toISOString(),
+          source: `formulario:${input.sourceId}`,
+        },
+      },
+    })
+    .eq("organization_id", input.organizationId)
+    .eq("id", input.contactId);
+  if (error) {
+    logger.warn("[elegibilidade] recusa do formulário não revogou a IA", {
+      organization_id: input.organizationId,
+      source_id: input.sourceId,
+    });
+  }
+}
+
 export async function autorizarCaptacaoParaIA(
   admin: SupabaseClient,
   input: {

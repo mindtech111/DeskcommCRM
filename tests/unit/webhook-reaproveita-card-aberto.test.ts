@@ -143,8 +143,10 @@ describe("POST /api/v1/webhooks/in reaproveita o card aberto", () => {
     const entrada = h.criarLead.mock.calls[0]?.[2] as unknown as {
       source?: string;
       tags?: string[];
+      source_metadata?: { capture_source?: string };
     };
-    expect(entrada?.source).toBe("revi");
+    expect(entrada?.source).toBe("webhook");
+    expect(entrada?.source_metadata?.capture_source).toBe("revi");
     expect(entrada?.tags).toEqual(expect.arrayContaining(["revi_vb", "revi/vb"]));
     expect(entrada?.tags).not.toContain("revi/whatsapp");
     expect(desfecho()).toBe("criado");

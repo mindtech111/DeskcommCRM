@@ -90,10 +90,17 @@ export function mapInboundPayload(
       typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean" ? String(value) : null;
     if (str === null) continue; // objetos/arrays aninhados: descartados no v1
     const chave = key.toLowerCase();
-    // `campaign` e `campanha` são o mesmo fato que `utm_campaign`. A chave
-    // explícita ganha: um envio com as duas não deixa o alias apagar a UTM.
-    if (chave === "utm_campaign" || chave === "campaign" || chave === "campanha") {
-      if (chave === "utm_campaign" || !source_metadata.utm_campaign) source_metadata.utm_campaign = str;
+    // `campaign` e `campanha` também alimentam a atribuição. A resposta
+    // continua em `custom_fields`: um formulário já pode ter essa pergunta,
+    // e tirá-la daqui apagaria a resposta do card. `utm_campaign` explícita
+    // ganha quando as duas chegam juntas.
+    if (chave === "campaign" || chave === "campanha") {
+      if (!source_metadata.utm_campaign) source_metadata.utm_campaign = str;
+      custom_fields[key] = str;
+      continue;
+    }
+    if (chave === "utm_campaign") {
+      source_metadata.utm_campaign = str;
       continue;
     }
     if (chave.startsWith("utm_")) source_metadata[chave] = str;

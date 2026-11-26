@@ -52,7 +52,7 @@ import {
 } from "@/lib/leads/origem-do-site";
 import { logger } from "@/lib/logger";
 import { PADRAO_DO_REF } from "@/lib/plataformas-de-anuncio/captura-de-clique";
-import { lerRefDeLinkJaCasado } from "@/lib/plataformas-de-anuncio/google/captura-de-clique";
+import { casarOuLerRefDeLink } from "@/lib/plataformas-de-anuncio/google/captura-de-clique";
 import { casarClickRef } from "@/lib/plataformas-de-anuncio/meta/captura-de-clique";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { ehPedidoDeOptOut } from "@/lib/opt-out/deteccao";
@@ -601,7 +601,7 @@ async function guardarOrigemDaPagina(
     const casado = await casarClickRef(admin, entrada.organizationId, ref!, entrada.contactId);
     const jaDesteContato = casado
       ? null
-      : await lerRefDeLinkJaCasado(admin, entrada.organizationId, ref!, entrada.contactId);
+      : await casarOuLerRefDeLink(admin, entrada.organizationId, ref!, entrada.contactId);
     const utm = casado?.utm ?? jaDesteContato?.utm;
     const trackingLinkId = casado?.tracking_link_id ?? jaDesteContato?.tracking_link_id ?? null;
     if (!utm) {

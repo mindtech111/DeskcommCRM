@@ -111,3 +111,35 @@ export async function lerRefDeLinkJaCasado(
   if (!linha.tracking_link_id && Object.keys(utm).length === 0) return null;
   return { utm, tracking_link_id: linha.tracking_link_id ?? null };
 }
+
+/**
+ * Reclama um ref de link do Google que ainda está livre, ou lê o que ESTE
+ * contato já reclamou.
+ *
+ * O transporte por QR reclama antes da pós-entrada. O WhatsApp oficial não
+ * reclama: sem este UPDATE o clique ficava sem dono e o toque não entrava.
+ * A UPDATE só casa `matched_at` nulo, então não toma o ref de outra pessoa.
+ */
+export async function casarOuLerRefDeLink(
+  admin: SupabaseClient,
+  organizationId: string,
+  token: string,
+  contactId: string,
+): Promise<{ utm: Record<string, string>; tracking_link_id: string | null } | null> {
+  const { data, error } = await admin
+    .from("google_ads_click_refs")
+    .update({ matched_at: new Date().toISOString(), contact_id: contactId })
+    .eq("organization_id", organizationId)
+    .eq("token", token)
+    .is("matched_at", null)
+    .select("tracking_link_id, query_raw")
+    .maybeSingle();
+  if (!error && data) {
+    const linha = data as { tracking_link_id?: string | null; query_raw?: unknown };
+    const utm = normalizarUtm(linha.query_raw);
+    if (linha.tracking_link_id || Object.keys(utm).length > 0) {
+      return { utm, tracking_link_id: linha.tracking_link_id ?? null };
+    }
+  }
+  return lerRefDeLinkJaCasado(admin, organizationId, token, contactId);
+}

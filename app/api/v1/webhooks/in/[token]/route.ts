@@ -54,7 +54,7 @@ import {
 import { ipDoClienteParaInet } from "@/lib/http/ip-do-cliente";
 import { decryptWebhookSecret } from "@/lib/webhooks/secrets";
 import { ApiError } from "@/lib/api/types";
-import { autorizarCaptacaoParaIA, camposDaCaptacao } from "@/lib/ai/elegibilidade/formulario";
+import { autorizarCaptacaoParaIA, camposDaCaptacao, revogarAutorizacaoSeRecusou } from "@/lib/ai/elegibilidade/formulario";
 import { autorizarContatoParaIA } from "@/lib/ai/elegibilidade/autorizacao";
 import { kickLocalPipeline } from "@/lib/dev/kick-local-pipeline";
 import {
@@ -379,18 +379,33 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
       .from("crm_leads")
       .select("id, contact_id, webhook_source_id, title, custom_fields, pipeline_id, stage_id")
       .eq("organization_id", source.organization_id)
-      .eq("source", origemGravadaDaFonte(source))
+      .eq("source", "webhook")
       .eq("external_id", externalId)
       .maybeSingle();
-    if (!data) return null;
+    // Card reaproveitado de outro canal guarda o recibo no metadata, não na
+    // coluna `external_id` (essa coluna é da origem `webhook`). O recibo vale
+    // mesmo depois que o card fecha: o reenvio não abre outro.
+    let linha = data;
+    if (!linha && source.reuse_open_lead === true) {
+      const recibo = `${source.id}:${externalId}`;
+      const segundo = await admin
+        .from("crm_leads")
+        .select("id, contact_id, webhook_source_id, title, custom_fields, pipeline_id, stage_id")
+        .eq("organization_id", source.organization_id)
+        .contains("source_metadata", { external_ids_reaproveitados: [recibo] })
+        .limit(1)
+        .maybeSingle();
+      linha = segundo.data;
+    }
+    if (!linha) return null;
     return {
-      id: data.id as string,
-      contactId: (data.contact_id as string | null) ?? null,
-      webhookSourceId: (data.webhook_source_id as string | null) ?? null,
-      title: (data.title as string | null) ?? null,
-      customFields: (data.custom_fields as Record<string, unknown> | null) ?? {},
-      pipelineId: (data.pipeline_id as string) ?? "",
-      stageId: (data.stage_id as string | null) ?? null,
+      id: linha.id as string,
+      contactId: (linha.contact_id as string | null) ?? null,
+      webhookSourceId: (linha.webhook_source_id as string | null) ?? null,
+      title: (linha.title as string | null) ?? null,
+      customFields: (linha.custom_fields as Record<string, unknown> | null) ?? {},
+      pipelineId: (linha.pipeline_id as string) ?? "",
+      stageId: (linha.stage_id as string | null) ?? null,
     };
   };
 
@@ -706,8 +721,14 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
           name: mapped.name ?? mapped.phone,
           phone_number: mapped.phone,
           email: mapped.email,
-          source: origemGravadaDaFonte(source),
-          source_metadata: { ...mapped.source_metadata, webhook_source_id: source.id },
+          source: "webhook",
+          source_metadata: {
+            ...mapped.source_metadata,
+            webhook_source_id: source.id,
+            ...(origemGravadaDaFonte(source) !== "webhook"
+              ? { capture_source: origemGravadaDaFonte(source) }
+              : {}),
+          },
           // Consentimento explícito só quando o Respondi confirmou concessão —
           // recusa NUNCA vira concessão por omissão. E a recusa agora é
           // GRAVADA, não omitida: o DEFAULT da coluna já é `granted_at: null`,
@@ -860,6 +881,14 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
           requestId,
           metadata: { webhook_source_id: source.id, reaproveitado: true },
         });
+        if (source.authorize_ai_on_capture && sourceSecret !== null) {
+          await revogarAutorizacaoSeRecusou(admin, {
+            organizationId: source.organization_id as string,
+            contactId,
+            sourceId: source.id as string,
+            recusou: payload.ai_service_consent === false,
+          });
+        }
         return respondWithLead(resultado.leadId);
       }
     }
@@ -878,9 +907,15 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
       : (mapped.name ?? mapped.phone ?? mapped.email ?? "Lead sem nome"),
     contact_id: contactId,
     tags: etiquetasDoEnvio(mapped.source_metadata, payload),
-    source: origemGravadaDaFonte(source),
+    source: "webhook",
     custom_fields: mapped.custom_fields,
-    source_metadata: { ...mapped.source_metadata, webhook_source_id: source.id },
+    source_metadata: {
+      ...mapped.source_metadata,
+      webhook_source_id: source.id,
+      ...(origemGravadaDaFonte(source) !== "webhook"
+        ? { capture_source: origemGravadaDaFonte(source) }
+        : {}),
+    },
     // A coluna que responde "de quem é este card" para a atualização por
     // integração (migration 0683). Vai junto do `source_metadata` porque é o
     // MESMO fato em dois lugares: o jsonb é o registro histórico do envio, e a

@@ -469,7 +469,7 @@ export function SourceDetail({ source, open, onOpenChange }: Props) {
               </Button>
             </div>
             <p className="text-sm text-muted-foreground">
-              {t("Vazio grava webhook. Um valor como revi marca o card que esta fonte criar. Não muda a origem de um card que já existia.")}
+              {t("Vazio não grava nome extra. Um valor como revi fica anotado no card novo, e a origem do card continua webhook — o consentimento da IA e o envio repetido dependem dela. Não muda um card que já existia.")}
             </p>
           </section>
 

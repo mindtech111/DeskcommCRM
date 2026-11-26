@@ -127,8 +127,8 @@ export const DICIONARIO: Traducoes = {
     es: "Activado, un envío de alguien que ya tiene una tarjeta abierta no abre otra: junta las etiquetas, guarda el origen de la campaña y anota en la línea de tiempo. Desactivado, cada envío abre una tarjeta, que es lo que siguen haciendo las fuentes antiguas.",
   },
   "Origem gravada no card novo": { es: "Origen guardado en la tarjeta nueva" },
-  "Vazio grava webhook. Um valor como revi marca o card que esta fonte criar. Não muda a origem de um card que já existia.": {
-    es: "Vacío guarda webhook. Un valor como revi marca la tarjeta que esta fuente cree. No cambia el origen de una tarjeta que ya existía.",
+  "Vazio não grava nome extra. Um valor como revi fica anotado no card novo, e a origem do card continua webhook — o consentimento da IA e o envio repetido dependem dela. Não muda um card que já existia.": {
+    es: "Vacío no guarda un nombre extra. Un valor como revi queda anotado en la tarjeta nueva, y el origen de la tarjeta sigue siendo webhook: el consentimiento de la IA y el envío repetido dependen de él. No cambia una tarjeta que ya existía.",
   },
   "Salvar origem": { es: "Guardar origen" },
   "Só para integrações entre sistemas: ligado, um envio com o mesmo external_id que traga dado novo atualiza o card desta fonte — os campos, o título e a etapa pedida em stage, sempre para a frente. Desligado, o padrão, o envio repetido continua sendo reenvio e nada no card muda, nem o que a equipe corrigiu à mão.": { es: "Solo para integraciones entre sistemas: activado, un envío con el mismo external_id que traiga datos nuevos actualiza la tarjeta de esta fuente — los campos, el título y la etapa pedida en stage, siempre hacia adelante. Desactivado, lo predeterminado, el envío repetido sigue siendo un reenvío y nada en la tarjeta cambia, ni lo que el equipo corrigió a mano." },

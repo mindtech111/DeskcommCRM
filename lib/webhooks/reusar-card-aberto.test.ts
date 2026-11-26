@@ -111,17 +111,17 @@ describe("reuso do card aberto", () => {
     expect(lead?.payload).not.toHaveProperty("source");
     expect(lead?.payload).not.toHaveProperty("external_id");
     const meta = lead?.payload.source_metadata as { external_ids_reaproveitados: string[] };
-    expect(meta.external_ids_reaproveitados).toEqual(["ext-1"]);
-    expect(jaReaproveitou(meta, "ext-1")).toBe(true);
+    expect(meta.external_ids_reaproveitados).toEqual(["fonte-1:ext-1"]);
+    expect(jaReaproveitou(meta, "fonte-1", "ext-1")).toBe(true);
+    expect(jaReaproveitou(meta, "outra-fonte", "ext-1")).toBe(false);
     expect(emitLeadActivity).toHaveBeenCalledOnce();
-    expect(estado.eventos).toContain("lead.updated");
-    expect(estado.eventos).toContain("lead.tag_added");
+    expect(estado.eventos).toEqual(["lead.updated"]);
   });
 
   it("o mesmo external_id não anota de novo", async () => {
     const repetido = await reusarCardAberto(
       admin() as never,
-      { ...CARD, sourceMetadata: { external_ids_reaproveitados: ["ext-1"] } },
+      { ...CARD, sourceMetadata: { external_ids_reaproveitados: ["fonte-1:ext-1"] } },
       envio,
     );
     expect(repetido).toEqual({ reusado: true, leadId: "lead-1", repetido: true });
