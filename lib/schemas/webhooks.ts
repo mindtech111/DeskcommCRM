@@ -491,8 +491,9 @@ export const createWebhookSourceSchema = z.object({
   secret: z.string().min(16).max(200).nullish(),
   /**
    * Reaproveitar o card aberto do contato em vez de abrir outro.
-   * Ausente na criação: a coluna nasce true para fonte nova (migration 0691).
-   * Fonte que já existia ficou false — ligar é decisão de quem administra.
+   * Ausente na criação pela tela: o INSERT da aplicação grava true.
+   * O default da coluna é false, para INSERT que não conhece o campo
+   * (fixture, fonte antiga) continuar abrindo um card por envio.
    */
   reuse_open_lead: z.boolean().optional(),
   /**
