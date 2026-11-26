@@ -760,10 +760,10 @@ export const NAV_CATALOG = [
   // ── QUEM FICA NO MENU, E POR QUÊ ─────────────────────────────────────────
   //
   // A régua é a FREQUÊNCIA de quem opera vendas por WhatsApp, não a importância
-  // da tela. As três de cima entram na rotina — o dono abre Desempenho para
-  // saber como vai o mês, Meta Ads para saber quanto custou trazer quem chegou,
-  // e Atividades para saber se a equipe (e a IA) trabalhou no período. São
-  // perguntas que se refazem toda semana, e um menu é para o que se refaz.
+  // da tela. Entram na rotina o Painel (o dia, refeito a cada minuto),
+  // Desempenho (como vai o mês), Meta Ads (quanto custou trazer quem chegou)
+  // e Atividades (se a equipe e a IA trabalharam no período). São perguntas
+  // que se refazem, e um menu é para o que se refaz.
   //
   // As duas de baixo são visita DELIBERADA: "Evolução da IA" é revisão do
   // agente, coisa de quando se senta para ensiná-lo — e quem senta para isso já
@@ -815,8 +815,23 @@ export const NAV_CATALOG = [
     sidebar: true,
   },
   {
-    // Logo abaixo de Desempenho porque responde a metade da MESMA pergunta: lá
-    // está o que aconteceu depois que a pessoa chegou; aqui, quanto custou
+    // Entre Desempenho e Meta Ads: a pergunta do dia, não a do mês. Desempenho
+    // continua o recorte fixo de 30 dias; aqui a janela é hoje (e 7 ou 30),
+    // refeita a cada minuto. `manager` pelo mesmo motivo de Meta Ads — cliques
+    // e a conta de anúncios não têm recorte por pessoa.
+    href: "/app/painel",
+    label: "Painel",
+    description:
+      "O dia da operação, atualizado a cada minuto: leads, conversas, consultas, vendas e anúncios.",
+    icon: "ClockCountdown",
+    group: "analise",
+    section: "Os números do período",
+    minRole: "manager",
+    sidebar: true,
+  },
+  {
+    // Ao lado do Painel e de Desempenho: responde a metade da MESMA pergunta.
+    // Lá está o que aconteceu depois que a pessoa chegou; aqui, quanto custou
     // trazê-la. Ler as duas juntas é o que fecha a conta do custo por cliente.
     href: "/app/ads/meta",
     label: "Meta Ads",
