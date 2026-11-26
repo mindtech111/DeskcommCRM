@@ -100,15 +100,31 @@ function TabelaSimples({
   );
 }
 
-function BlocoMeta({ meta }: { meta: RetratoDoPainel["meta"] }) {
+function BlocoMeta({
+  meta,
+  podeConectar,
+}: {
+  meta: RetratoDoPainel["meta"];
+  podeConectar: boolean;
+}) {
   const t = useT();
   if (!meta.conectado) {
     return (
       <EmptyState
         icon={Megaphone}
         headline={t("Conecte a conta de anúncios")}
-        subcopy={t("O gasto e o custo por lead aparecem quando a conta está conectada.")}
-        primary={{ label: t("Abrir conexão de anúncios"), href: "/app/settings/meta-ads" }}
+        subcopy={
+          podeConectar
+            ? t("O gasto e o custo por lead aparecem quando a conta está conectada.")
+            : t(
+                "Peça a quem administra a organização para conectar a conta de anúncios em Configurações.",
+              )
+        }
+        primary={
+          podeConectar
+            ? { label: t("Abrir conexão de anúncios"), href: "/app/settings/meta-ads" }
+            : undefined
+        }
       />
     );
   }
@@ -116,12 +132,14 @@ function BlocoMeta({ meta }: { meta: RetratoDoPainel["meta"] }) {
     return (
       <div className="flex flex-col gap-2 text-sm">
         <p>{t("A conta está conectada. O gasto e o custo por lead ainda não são lidos daqui.")}</p>
-        <Link
-          href="/app/settings/meta-ads"
-          className="text-sm text-accent underline underline-offset-2"
-        >
-          {t("Abrir conexão de anúncios")}
-        </Link>
+        {podeConectar ? (
+          <Link
+            href="/app/settings/meta-ads"
+            className="text-sm text-accent underline underline-offset-2"
+          >
+            {t("Abrir conexão de anúncios")}
+          </Link>
+        ) : null}
       </div>
     );
   }
@@ -145,7 +163,7 @@ function BlocoMeta({ meta }: { meta: RetratoDoPainel["meta"] }) {
   );
 }
 
-export function PainelClient() {
+export function PainelClient({ podeConectar }: { podeConectar: boolean }) {
   const t = useT();
   const tag = useTagDeIdioma();
   const [periodo, setPeriodo] = useState<PeriodoPainel>("hoje");
@@ -226,13 +244,13 @@ export function PainelClient() {
           primary={{ label: t("Tentar de novo"), onClick: () => void refetch() }}
         />
       ) : (
-        <Grade resposta={data.data} />
+        <Grade resposta={data.data} podeConectar={podeConectar} />
       )}
     </div>
   );
 }
 
-function Grade({ resposta }: { resposta: RespostaDoPainel }) {
+function Grade({ resposta, podeConectar }: { resposta: RespostaDoPainel; podeConectar: boolean }) {
   const t = useT();
   const { atual, anterior, comparacao } = resposta;
   const vendasPorMoeda = new Map<
@@ -437,7 +455,7 @@ function Grade({ resposta }: { resposta: RespostaDoPainel }) {
             <TabelaSimples
               colunas={[t("Link"), t("Cliques")]}
               linhas={atual.rastreio.por_link.map((linha) => ({
-                chave: linha.nome,
+                chave: linha.id,
                 a: rotuloLivre(linha.nome, t),
                 b: String(linha.cliques),
               }))}
@@ -451,7 +469,7 @@ function Grade({ resposta }: { resposta: RespostaDoPainel }) {
           <CardTitle>{t("Anúncios")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <BlocoMeta meta={atual.meta} />
+          <BlocoMeta meta={atual.meta} podeConectar={podeConectar} />
         </CardContent>
       </Card>
     </div>

@@ -93,6 +93,10 @@ describe("GET /api/v1/metrics/painel", () => {
     expect(res.status).toBe(200);
     const corpo = ((await res.json()) as { data: Record<string, unknown> }).data;
 
+    expect(requireRole).toHaveBeenCalledWith(
+      "manager",
+      expect.objectContaining({ allowPlatformAdmin: true, resource: "metrics" }),
+    );
     expect(corpo.periodo).toBe("hoje");
     expect(corpo.fuso).toBe("America/Sao_Paulo");
     expect(chamadas).toHaveLength(2);

@@ -59790,6 +59790,11 @@ create index if not exists idx_crm_leads_org_won_closed
 create index if not exists meta_ads_click_refs_org_created_idx
   on public.meta_ads_click_refs (organization_id, created_at);
 
+-- O irmão do Google tem o mesmo desenho: o índice que já existe começa por
+-- tracking_link_id, e o painel soma todos os cliques da organização na janela.
+create index if not exists google_ads_click_refs_org_created_idx
+  on public.google_ads_click_refs (organization_id, created_at);
+
 create or replace function public.fn_painel_rotulo_origem(p_source text, p_meta jsonb)
 returns text
 language sql
@@ -59852,7 +59857,10 @@ as $fn$
 declare
   v_out jsonb;
 begin
+  -- A rota já cobra o MFA da sessão. Esta função também é RPC: sem a mesma
+  -- prova, uma sessão aal1 com fator verificado leria o agregado direto.
   if p_org is null
+     or not public.fn_session_mfa_proven()
      or not (
        public.fn_is_platform_admin()
        or (
@@ -59876,21 +59884,45 @@ begin
 
   with cliques as (
     select
-      r.tracking_link_id,
-      nullif(btrim(coalesce(r.utm->>'utm_campaign', '')), '') as campanha,
-      (r.contact_id is not null or r.matched_at is not null) as casou_contato,
-      exists (
-        select 1
-        from public.crm_leads l
-        where l.organization_id = r.organization_id
-          and r.contact_id is not null
-          and l.contact_id = r.contact_id
-          and l.created_at >= r.created_at
-      ) as casou_lead
-    from public.meta_ads_click_refs r
-    where r.organization_id = p_org
-      and r.created_at >= p_inicio
-      and r.created_at < p_fim
+      origem.tracking_link_id,
+      origem.campanha,
+      origem.casou_contato,
+      origem.casou_lead
+    from (
+      select
+        r.tracking_link_id,
+        nullif(btrim(coalesce(r.utm->>'utm_campaign', '')), '') as campanha,
+        (r.contact_id is not null or r.matched_at is not null) as casou_contato,
+        exists (
+          select 1
+          from public.crm_leads l
+          where l.organization_id = r.organization_id
+            and r.contact_id is not null
+            and l.contact_id = r.contact_id
+            and l.created_at >= r.created_at
+        ) as casou_lead
+      from public.meta_ads_click_refs r
+      where r.organization_id = p_org
+        and r.created_at >= p_inicio
+        and r.created_at < p_fim
+      union all
+      select
+        g.tracking_link_id,
+        nullif(btrim(coalesce(g.query_raw->>'utm_campaign', '')), '') as campanha,
+        (g.contact_id is not null or g.matched_at is not null) as casou_contato,
+        exists (
+          select 1
+          from public.crm_leads l
+          where l.organization_id = g.organization_id
+            and g.contact_id is not null
+            and l.contact_id = g.contact_id
+            and l.created_at >= g.created_at
+        ) as casou_lead
+      from public.google_ads_click_refs g
+      where g.organization_id = p_org
+        and g.created_at >= p_inicio
+        and g.created_at < p_fim
+    ) origem
   )
   select jsonb_build_object(
     'cliques', (select count(*)::int from cliques),
@@ -59930,13 +59962,15 @@ begin
     ),
     'por_link', coalesce((
       select jsonb_agg(jsonb_build_object(
+        'id', id,
         'nome', nome,
         'cliques', n,
         'casaram_contato', contatos,
         'casaram_lead', leads
       ) order by n desc, nome)
       from (
-        select coalesce(nullif(btrim(k.name), ''), 'link removido') as nome,
+        select c.tracking_link_id::text as id,
+               coalesce(nullif(btrim(k.name), ''), 'link removido') as nome,
                count(*)::int as n,
                count(*) filter (where c.casou_contato)::int as contatos,
                count(*) filter (where c.casou_lead)::int as leads
@@ -59945,8 +59979,8 @@ begin
           on k.organization_id = p_org
          and k.id = c.tracking_link_id
         where c.tracking_link_id is not null
-        group by 1
-        order by count(*) desc, 1
+        group by c.tracking_link_id, k.name
+        order by count(*) desc, k.name
         limit 40
       ) l
     ), '[]'::jsonb),
@@ -60086,7 +60120,9 @@ begin
         where o.organization_id = p_org
           and o.conversation_id = n.conversation_id
           and o.direction = 'outbound'
+          and o.status in ('sent', 'delivered', 'read')
           and o.sent_at >= n.primeiro
+          and o.sent_at < p_fim
       ) as saida
     from novas n
   )

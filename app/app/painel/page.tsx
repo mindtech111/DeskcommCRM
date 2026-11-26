@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
-import { ROLE_RANK } from "@/lib/auth/types";
+import { ROLE_RANK, escreveComoPlatformAdmin } from "@/lib/auth/types";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 import { PainelClient } from "./_components/PainelClient";
@@ -14,9 +14,13 @@ export default async function PainelPage() {
   const user = await requireAuth();
   const activeOrg = await resolveActiveOrg(user);
   if (!activeOrg) redirect("/app");
-  if (!(user.is_platform_admin && !user.support) && ROLE_RANK[activeOrg.role] < ROLE_RANK.manager) {
+  // O mesmo recorte da rota: admin de plataforma com escopo full (fora de
+  // suporte) ou gerente da organização. Ajustes da conta de anúncios são admin.
+  const adminDePlataforma = !user.support && escreveComoPlatformAdmin(user);
+  if (!adminDePlataforma && ROLE_RANK[activeOrg.role] < ROLE_RANK.manager) {
     redirect("/403");
   }
+  const podeConectar = adminDePlataforma || ROLE_RANK[activeOrg.role] >= ROLE_RANK.admin;
   const t = (texto: string) => traduzir(texto, user.idioma);
 
   return (
@@ -27,7 +31,7 @@ export default async function PainelPage() {
           {t("Leads, conversas, consultas e vendas do período, ao lado do que aconteceu antes.")}
         </p>
       </header>
-      <PainelClient />
+      <PainelClient podeConectar={podeConectar} />
     </div>
   );
 }

@@ -32,6 +32,7 @@ const linhaDeClique = z.object({
 });
 
 const linhaDeLink = z.object({
+  id: z.string().uuid(),
   nome: z.string(),
   cliques: inteiro,
   casaram_contato: inteiro,

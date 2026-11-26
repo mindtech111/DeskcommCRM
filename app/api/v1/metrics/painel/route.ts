@@ -60,7 +60,13 @@ async function lerRetrato(
 
 export async function GET(req: NextRequest): Promise<Response> {
   const requestId = randomUUID();
-  const authz = await requireRole("manager", { requestId, resource: "metrics" });
+  // `true`, não `"leitura"`: o atalho de leitura pula o MFA. O escopo full
+  // ainda prova o fator antes de entrar; suporte não usa o atalho.
+  const authz = await requireRole("manager", {
+    requestId,
+    resource: "metrics",
+    allowPlatformAdmin: true,
+  });
   if (!authz.ok) return authz.response;
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org: activeOrg } = authz;
