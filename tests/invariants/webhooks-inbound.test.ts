@@ -44,7 +44,7 @@ function sqlLiteral(v: unknown): string {
 type QResult = { data: unknown; error: { message: string; code?: string } | null };
 type RowResult = { data: Record<string, unknown> | null; error: { message: string; code?: string } | null };
 
-type FilterOp = "eq" | "is" | "in";
+type FilterOp = "eq" | "is" | "in" | "cs";
 interface Filter {
   op: FilterOp;
   col: string;
@@ -107,6 +107,12 @@ class FakeQuery implements PromiseLike<QResult> {
     return this;
   }
 
+  /** `@>` do jsonb. A rota procura o recibo do reuso dentro de source_metadata. */
+  contains(col: string, val: unknown): this {
+    this.filters.push({ op: "cs", col, val });
+    return this;
+  }
+
   order(col: string, opts: { ascending: boolean }): this {
     this.orderCol = col;
     this.orderAsc = opts.ascending;
@@ -126,6 +132,7 @@ class FakeQuery implements PromiseLike<QResult> {
         const list = Array.isArray(f.val) ? f.val : [];
         return `${f.col} in (${list.map((v) => sqlLiteral(v)).join(", ")})`;
       }
+      if (f.op === "cs") return `${f.col} @> ${sqlLiteral(f.val)}`;
       return `${f.col} = ${sqlLiteral(f.val)}`;
     });
     return ` where ${clauses.join(" and ")}`;
