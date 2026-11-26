@@ -1,10 +1,19 @@
 /**
  * GET /api/v1/conversations/counts — contagens por visão do inbox (G4-02).
  *
- * Usa o client user-scoped (cookie session) → toda contagem HERDA a RLS de
+ * Usa o client user-scoped (cookie session) → a leitura HERDA a RLS de
  * SELECT de `conversations` (fn_can_view_conversation, migration 0035). Um agent
  * em modo own* recebe a contagem do SEU escopo, NUNCA o total da org — a mesma
- * garantia do listing. Head count (count:'exact', head:true) não devolve linhas.
+ * garantia do listing.
+ *
+ * Uma consulta só, não seis `count=exact`. Cada HEAD exato reavalia a RLS na
+ * tabela inteira (1–4 s em produção, e alguns batiam no `statement_timeout`
+ * de 8 s). Agregação condicional no PostgREST exige `db-aggregates-enabled`,
+ * que este repositório não liga, e uma função no banco seria migration —
+ * fora deste conserto. `count=estimated` faria o badge divergir da lista, e
+ * este arquivo existe para os dois dizerem o mesmo número. A saída é um
+ * SELECT das colunas que separam as abas, paginado por `id` até a página
+ * vazia (o `max_rows` do PostgREST corta em 1000), e a soma acontece aqui.
  */
 import { randomUUID } from "node:crypto";
 
@@ -48,16 +57,17 @@ export type FiltroDeContagem = readonly [coluna: string, valor: string | boolean
  * e a segunda régua sempre diverge. Enquanto isso, o badge sob busca fica maior
  * que a lista, e isso está declarado, não esquecido.
  */
-export function filtrosAuxiliaresDaContagem(
-  sp: URLSearchParams,
-): FiltroDeContagem[] {
+export function filtrosAuxiliaresDaContagem(sp: URLSearchParams): FiltroDeContagem[] {
   const filtros: FiltroDeContagem[] = [];
   const canal = sp.get("channel_session_id");
   if (canal) filtros.push(["channel_session_id", canal]);
   // O atendente escolhido pelo gerente. Só id de usuário (uuid) entra: qualquer
   // outra coisa seria ignorada em silêncio e a contagem divergiria da lista.
   const atendente = sp.get("assigned_to");
-  if (atendente && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(atendente)) {
+  if (
+    atendente &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(atendente)
+  ) {
     filtros.push(["assigned_to_user_id", atendente]);
   }
   // O MARCADOR não entra nesta lista, e não é esquecimento: ele não é
@@ -75,6 +85,75 @@ export function filtrosAuxiliaresDaContagem(
 export function contagemSoNaoLidas(sp: URLSearchParams): boolean {
   return sp.get("unread") === "true";
 }
+
+/** O que uma linha precisa para cair na aba certa. Nada além. */
+export interface LinhaDeContagem {
+  id: string;
+  status: string;
+  comando_da_conversa: string | null;
+  assigned_to_user_id: string | null;
+}
+
+export interface ContagensDaBarra {
+  fila: number;
+  automatico: number;
+  unassigned: number;
+  mine: number;
+  all: number;
+  closed: number;
+  archived: number;
+}
+
+/**
+ * As seis abas a partir das linhas que já passaram pelos filtros comuns.
+ *
+ * O atendente escolhido pelo gerente NÃO entra no WHERE: a aba Minhas ignora
+ * essa escolha (a lista pede `assigned_to=me`). Aplicá-lo na consulta tiraria
+ * as conversas de quem está logado e o badge de Minhas iria a zero.
+ */
+export function contagensDoRecorte(
+  linhas: readonly LinhaDeContagem[],
+  opts: {
+    userId: string;
+    comandosFila: readonly string[];
+    atendenteEscolhido: string | null;
+  },
+): ContagensDaBarra {
+  const terminais = new Set<string>(CONVERSATION_TERMINAL_STATUSES);
+  // O banco compara uuid sem caixa. A lista pede `.eq` e aceita o id como
+  // veio na URL. Aqui a comparação é em memória, e o PostgREST devolve o
+  // uuid em minúsculas: sem normalizar, um id em maiúsculas zera as abas
+  // filtradas e a lista continua mostrando as conversas.
+  const escolhido = opts.atendenteEscolhido?.toLowerCase() ?? null;
+  const eu = opts.userId.toLowerCase();
+  let fila = 0;
+  let automatico = 0;
+  let mine = 0;
+  let all = 0;
+  let closed = 0;
+  let archived = 0;
+  for (const linha of linhas) {
+    const dono = linha.assigned_to_user_id?.toLowerCase() ?? null;
+    const noRecorte = escolhido === null || dono === escolhido;
+    if (noRecorte) {
+      all += 1;
+      if (
+        linha.comando_da_conversa !== null &&
+        opts.comandosFila.includes(linha.comando_da_conversa)
+      ) {
+        fila += 1;
+      }
+      if (linha.comando_da_conversa === "automatico") automatico += 1;
+      if (linha.status === "closed") closed += 1;
+      if (linha.status === "archived") archived += 1;
+    }
+    if (dono === eu && !terminais.has(linha.status)) mine += 1;
+  }
+  return { fila, automatico, unassigned: fila, mine, all, closed, archived };
+}
+
+/** Página da leitura. Igual ao `max_rows` do `supabase/config.toml`. */
+const PAGINA_DA_CONTAGEM = 1000;
 
 export async function GET(req: NextRequest): Promise<Response> {
   const requestId = randomUUID();
@@ -124,13 +203,20 @@ export async function GET(req: NextRequest): Promise<Response> {
   // Canal desativado nunca entra na inbox: o mesmo corte da lista, para badge
   // e aba nunca divergirem.
   const idsDesativados = await idsDosCanaisDesativados(supabase, org);
-  const countExact = (filtrosDaAba: readonly FiltroDeContagem[] = auxiliares) => {
+  // Minhas ignora o atendente escolhido. Os outros filtros valem para todas
+  // as abas e ficam no WHERE — inclusive Minhas.
+  const atendenteEscolhido =
+    auxiliares.find(([coluna]) => coluna === "assigned_to_user_id")?.[1] ?? null;
+  const filtrosComuns = auxiliares.filter(([coluna]) => coluna !== "assigned_to_user_id");
+  const consultaDasContagens = () => {
     let q = supabase
       .from("conversations")
-      .select("id", { count: "exact", head: true })
+      .select("id, status, comando_da_conversa, assigned_to_user_id")
       .eq("organization_id", org);
-    if (idsDesativados.length > 0) q = q.not("channel_session_id", "in", `(${idsDesativados.join(",")})`);
-    for (const [coluna, valor] of filtrosDaAba) q = q.eq(coluna, valor);
+    if (idsDesativados.length > 0) {
+      q = q.not("channel_session_id", "in", `(${idsDesativados.join(",")})`);
+    }
+    for (const [coluna, valor] of filtrosComuns) q = q.eq(coluna, valor);
     // O marcador entra pela régua da LISTA — a mesma função, não uma segunda.
     q = aplicarMarcadores(q, marcadores, modo);
     if (pessoais.length > 0) q = q.not("contact_id", "in", `(${pessoais.join(",")})`);
@@ -138,76 +224,53 @@ export async function GET(req: NextRequest): Promise<Response> {
     return q;
   };
 
-  // Espelha tabToFilter (InboxLayout): unassigned = fila aberta sem dono;
-  // mine = atribuídas a mim e ainda ABERTAS; all = tudo que o usuário VÊ.
-  //
-  // O `not in (terminais)` do `mine` espelha o `exclude_finished` da aba, e o
-  // espelhamento é o ponto: um badge que conta o que a aba não mostra é pior
-  // que badge nenhum — manda o atendente procurar um trabalho que não existe.
-  // O fato ORG-WIDE resolvido ANTES das contagens, porque ele escolhe QUAL
+  // O fato ORG-WIDE resolvido ANTES da leitura, porque ele escolhe QUAL
   // conjunto de comandos a Fila pede. `undefined` (não deu para saber) segue a
   // convenção da regra: assume que há automático.
+  //
+  // A FILA DEIXOU DE SER "sem dono + status de espera". Aquele par contava
+  // como trabalho humano pendente tudo que o robô estava atendendo. Agora a
+  // soma usa `comandosDaFila`, o mesmo predicado da aba.
+  //
+  // Fechadas e Arquivadas são status diferentes (#923): somar os dois no
+  // mesmo número fazia o badge dizer 120 e a lista mostrar 40.
+  // `unassigned` continua respondendo, com o MESMO valor de `fila`.
   const automaticoDaOrg = await orgTemAutomatico(supabase, org);
 
-  const [fila, automatico, mine, all, closed, archived] = await Promise.all([
-    // A FILA DEIXOU DE SER "sem dono + status de espera".
-    //
-    // Aquele par contava como trabalho humano pendente tudo que o robô estava
-    // atendendo: medido na VPS em 2026-08-30, o badge dizia 83 enquanto 47
-    // daquelas conversas tinham o automático no comando. Agora ele conta o mesmo
-    // predicado que a aba pede — e o espelhamento entre badge e aba é vigiado
-    // por `tests/e2e/inbox-abas-espelham-o-comando.spec.ts`,
-    // `tests/unit/fila-tem-uma-definicao-so.test.ts` e
-    // `tests/invariants/gov-5b-inbox-scope-counts.test.ts`, porque um badge que conta o
-    // que a aba não mostra manda o atendente procurar trabalho que não existe.
-    countExact().in("comando_da_conversa", comandosDaFila(automaticoDaOrg)),
-    // A aba "Automático". Antes ela pedia `status='ai_handling'`, escrito por UM
-    // caminho só em produção — por isso vivia quase vazia.
-    countExact().eq("comando_da_conversa", "automatico"),
-    // Minhas IGNORA o atendente escolhido pelo gerente: a lista da aba pede
-    // `assigned_to=me`, que vence a escolha. Com o atendente aqui, o badge
-    // contava `eu E ele` (zero) enquanto a aba listava as do gerente.
-    countExact(auxiliares.filter(([coluna]) => coluna !== "assigned_to_user_id"))
-      .eq("assigned_to_user_id", user.id)
-      .not("status", "in", `(${CONVERSATION_TERMINAL_STATUSES.join(",")})`),
-    countExact(),
-    // A aba "Fechadas" existia SEM número nenhum. Num inbox antigo, é o número
-    // que diz o tamanho do arquivo — e a sua ausência fazia a aba parecer um
-    // lugar vazio. Mesma fábrica: herda organização e filtros.
-    //
-    // ⚠️ `eq("closed")`, e NÃO `in(TERMINAIS)` como antes. O par
-    // fechada/arquivada agora tem DUAS abas, e cada badge tem de contar
-    // exatamente a lista da sua aba: `in(TERMINAIS)` somava arquivadas (e, antes
-    // da 0222, resolvidas) no número de "Fechadas", que lista só
-    // `status='closed'` — o badge dizia 120 e a lista mostrava 40. Era a mesma
-    // classe de defeito que este arquivo já conserta desde a Fila, encontrada
-    // aqui no caminho (#923).
-    countExact().eq("status", "closed"),
-    // A aba "Arquivadas" (#923): a pasta do histórico, separada de "Fechadas"
-    // para que arquivar seja reversível e auditável sem se confundir com o
-    // encerramento do atendimento.
-    countExact().eq("status", "archived"),
-  ]);
-
-  const firstErr =
-    fila.error ?? automatico.error ?? mine.error ?? all.error ?? closed.error ?? archived.error;
-  if (firstErr) {
-    return fail("internal_error", firstErr.message, 500, { requestId });
+  const porId = new Map<string, LinhaDeContagem>();
+  let cursor: string | undefined;
+  for (;;) {
+    let q = consultaDasContagens().order("id", { ascending: true }).limit(PAGINA_DA_CONTAGEM);
+    if (cursor) q = q.gt("id", cursor);
+    const pagina = await q;
+    if (pagina.error) {
+      return fail("internal_error", pagina.error.message, 500, { requestId });
+    }
+    const linhas = pagina.data ?? [];
+    if (linhas.length === 0) break;
+    const ultimo = linhas[linhas.length - 1]?.id;
+    if (!ultimo || (cursor !== undefined && ultimo <= cursor)) {
+      return fail("internal_error", "Falha ao contar as conversas.", 500, { requestId });
+    }
+    for (const linha of linhas) porId.set(linha.id, linha);
+    cursor = ultimo;
   }
+
+  const contagens = contagensDoRecorte([...porId.values()], {
+    userId: user.id,
+    comandosFila: comandosDaFila(automaticoDaOrg),
+    atendenteEscolhido: typeof atendenteEscolhido === "string" ? atendenteEscolhido : null,
+  });
 
   return ok(
     {
-      fila: fila.count ?? 0,
-      automatico: automatico.count ?? 0,
-      // `unassigned` continua respondendo, com o MESMO valor de `fila`. É rota
-      // `/api/v1/` versionada: campo não some de uma versão para outra, e um
-      // cliente com a página aberta desde antes do deploy segue lendo o nome
-      // velho até recarregar.
-      unassigned: fila.count ?? 0,
-      mine: mine.count ?? 0,
-      all: all.count ?? 0,
-      closed: closed.count ?? 0,
-      archived: archived.count ?? 0,
+      fila: contagens.fila,
+      automatico: contagens.automatico,
+      unassigned: contagens.unassigned,
+      mine: contagens.mine,
+      all: contagens.all,
+      closed: contagens.closed,
+      archived: contagens.archived,
     },
     { requestId },
   );

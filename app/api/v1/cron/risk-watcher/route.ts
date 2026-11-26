@@ -36,6 +36,8 @@ import type { NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
 import { logger } from "@/lib/logger";
+import { detalheDoErro } from "@/lib/observabilidade/falha-de-leitura";
+import { ErroDeConsulta } from "@/lib/postgrest/lotes-de-ids";
 import { venceReativacoes } from "@/lib/leads/reactivation";
 import { observaTravessias } from "@/lib/leads/risk-worker";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -102,9 +104,12 @@ async function handle(req: NextRequest): Promise<Response> {
       // estranho congelaria o radar de todos os demais — e o sintoma seria
       // "ninguém esfria mais", que é indistinguível de "está tudo em dia".
       comErro.push(org);
+      const detalhe = detalheDoErro(e);
       logger.error("[risk-watcher] org falhou", {
         organizationId: org,
-        error: e instanceof Error ? e.message : String(e),
+        error: detalhe.message,
+        ...(detalhe.code ? { code: detalhe.code } : {}),
+        ...(e instanceof ErroDeConsulta ? { step: e.step } : {}),
         requestId,
       });
     }

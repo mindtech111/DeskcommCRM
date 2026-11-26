@@ -15,7 +15,7 @@ const ATENDENTE = "0a0a0a0a-1111-4000-8000-000000000002";
 type Linha = Record<string, unknown>;
 let linhas: Linha[] = [];
 
-/** Builder falso do supabase-js: aplica eq/in/not-in/gt sobre `linhas` e conta. */
+/** Builder falso do supabase-js: aplica eq/in/not-in/gt e devolve as linhas. */
 function consulta(filtros: Array<(l: Linha) => boolean> = []) {
   const com = (f: (l: Linha) => boolean) => consulta([...filtros, f]);
   const q = {
@@ -24,10 +24,17 @@ function consulta(filtros: Array<(l: Linha) => boolean> = []) {
     in: (c: string, vs: unknown[]) => com((l) => vs.includes(l[c])),
     not: (c: string, _op: "in", lista: string) =>
       com((l) => !lista.slice(1, -1).split(",").includes(String(l[c]))),
-    gt: (c: string, v: number) => com((l) => Number(l[c]) > v),
+    gt: (c: string, v: unknown) =>
+      com((l) => (c === "id" ? String(l[c]) > String(v) : Number(l[c]) > Number(v))),
     or: () => q,
-    then: (ok: (r: { count: number; error: null }) => unknown) =>
-      Promise.resolve({ count: linhas.filter((l) => filtros.every((f) => f(l))).length, error: null }).then(ok),
+    order: () => q,
+    limit: () => q,
+    then: (ok: (r: { data: Linha[]; error: null }) => unknown) => {
+      const data = linhas
+        .filter((l) => filtros.every((f) => f(l)))
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      return Promise.resolve({ data, error: null }).then(ok);
+    },
   };
   return q;
 }
@@ -49,21 +56,33 @@ vi.mock("@/app/api/v1/conversations/_handler", () => ({ idsDeContatosPessoais: a
 const { GET } = await import("@/app/api/v1/conversations/counts/route");
 
 async function contagens(qs: string) {
-  const req = { nextUrl: new URL(`http://x/api/v1/conversations/counts?${qs}`) } as unknown as NextRequest;
+  const req = {
+    nextUrl: new URL(`http://x/api/v1/conversations/counts?${qs}`),
+  } as unknown as NextRequest;
   const corpo = (await (await GET(req)).json()) as { data: Record<string, number> };
   return corpo.data;
 }
 
-const conversa = (dono: string): Linha => ({
+let seq = 0;
+const conversa = (dono: string, over: Linha = {}): Linha => ({
+  id: `c-${(seq += 1).toString().padStart(3, "0")}`,
   organization_id: ORG,
   assigned_to_user_id: dono,
   status: "open",
   comando_da_conversa: "humano",
+  ...over,
 });
 
 describe("filtro por atendente — o badge de Minhas espelha a aba Minhas", () => {
   beforeEach(() => {
-    linhas = [conversa(GERENTE), conversa(GERENTE), conversa(ATENDENTE), conversa(ATENDENTE), conversa(ATENDENTE)];
+    seq = 0;
+    linhas = [
+      conversa(GERENTE),
+      conversa(GERENTE),
+      conversa(ATENDENTE),
+      conversa(ATENDENTE),
+      conversa(ATENDENTE),
+    ];
   });
 
   it("CONTROLE: sem atendente escolhido, Minhas = as do gerente e Todas = todas", async () => {
@@ -76,5 +95,18 @@ describe("filtro por atendente — o badge de Minhas espelha a aba Minhas", () =
     const c = await contagens(`assigned_to=${ATENDENTE}`);
     expect(c.all).toBe(3);
     expect(c.mine).toBe(2);
+  });
+
+  it("devolve o mesmo corpo de antes e não conta fechada em Minhas", async () => {
+    linhas.push(conversa(GERENTE, { status: "closed" }), conversa(GERENTE, { status: "archived" }));
+    const c = await contagens("");
+    expect(Object.keys(c).sort()).toEqual(
+      ["all", "archived", "automatico", "closed", "fila", "mine", "unassigned"].sort(),
+    );
+    expect(c.mine).toBe(2);
+    expect(c.closed).toBe(1);
+    expect(c.archived).toBe(1);
+    expect(c.all).toBe(7);
+    expect(c.unassigned).toBe(c.fila);
   });
 });

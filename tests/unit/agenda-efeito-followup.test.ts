@@ -52,7 +52,14 @@ describe("última borda de efeito do follow-up", () => {
     await expect(
       withAgendaEffect(
         { query } as never,
-        { organizationId: "org", contactId: "c", enrollmentId: "e", nodeId: "n", jobId: "old-job", jobClaim:{worker_id:"worker",acquired_at:"2026-09-06T10:00:00.123456Z"} },
+        {
+          organizationId: "org",
+          contactId: "c",
+          enrollmentId: "e",
+          nodeId: "n",
+          jobId: "old-job",
+          jobClaim: { worker_id: "worker", acquired_at: "2026-09-06T10:00:00.123456Z" },
+        },
         transport,
       ),
     ).rejects.toBeInstanceOf(StaleServiceBoundaryError);
@@ -65,15 +72,21 @@ describe("última borda de efeito do follow-up", () => {
     expect(transport).not.toHaveBeenCalled();
   });
   it("falha DB conserva adiamento com diagnóstico", async () => {
-    const warning=vi.spyOn(logger,"warn").mockImplementation(()=>{});
+    const erro = vi.spyOn(logger, "error").mockImplementation(() => {});
     const query = vi.fn(async () => {
       throw new Error("database unavailable");
     });
     await expect(
       withAgendaEffect({ query } as never, { organizationId: "org", contactId: "c" }, vi.fn()),
     ).rejects.toMatchObject({ protection: { motivo: "leitura_indisponivel", adiar: true } });
-    expect(warning).toHaveBeenCalledWith("[agenda] proteção indisponível; cobrança adiada");
-    warning.mockRestore();
+    expect(erro).toHaveBeenCalledWith(
+      "[agenda] proteção indisponível; cobrança adiada",
+      expect.objectContaining({
+        message: expect.stringContaining("database unavailable"),
+        step: "calendar_appointments",
+      }),
+    );
+    erro.mockRestore();
   });
   it.each([{ rows: [] }, { rows: [{ status: "vetoed" }] }])(
     "sem envio ou veto tem desfecho terminal, sem repetir o turno",
