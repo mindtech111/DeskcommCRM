@@ -16275,6 +16275,75 @@ export const DICIONARIO: Traducoes = {
   "A resposta ia mostrar um produto que não foi encontrado no cadastro. Confira o produto e gere de novo.": { es: "La respuesta iba a mostrar un producto que no se encontró en el registro. Revisa el producto y genera de nuevo." },
   "A sugestão tentou usar uma ação que a prévia não reconhece. Gere de novo; se repetir, revise as ferramentas ligadas no agente.": { es: "La sugerencia intentó usar una acción que la previsualización no reconoce. Genera de nuevo; si se repite, revisa las herramientas activadas en el agente." },
   "A geração da sugestão falhou, ou o contexto da conversa não pôde ser montado. Tente de novo; se repetir, o motivo ficou registrado no servidor.": { es: "La generación de la sugerencia falló, o no se pudo armar el contexto de la conversación. Inténtalo de nuevo; si se repite, el motivo quedó registrado en el servidor." },
+  // Painel diário (/app/painel).
+  Painel: { es: "Panel" },
+  "Leads novos": { es: "Leads nuevos" },
+  "O dia da operação, atualizado a cada minuto: leads, conversas, consultas, vendas e anúncios.": {
+    es: "El día de la operación, actualizado cada minuto: leads, conversaciones, consultas, ventas y anuncios.",
+  },
+  "Leads, conversas, consultas e vendas do período, ao lado do que aconteceu antes.": {
+    es: "Leads, conversaciones, consultas y ventas del período, junto a lo que ocurrió antes.",
+  },
+  "Hoje até agora, no mesmo horário de ontem.": {
+    es: "Hoy hasta ahora, a la misma hora de ayer.",
+  },
+  "Os últimos 7 dias, contra os 7 dias anteriores.": {
+    es: "Los últimos 7 días, contra los 7 días anteriores.",
+  },
+  "Os últimos 30 dias, contra os 30 dias anteriores.": {
+    es: "Los últimos 30 días, contra los 30 días anteriores.",
+  },
+  "Carregando o painel": { es: "Cargando el panel" },
+  "Não consegui carregar o painel": { es: "No pude cargar el panel" },
+  "Pode ser uma falha de rede. Tente de novo em instantes.": {
+    es: "Puede ser un fallo de red. Inténtalo de nuevo en un momento.",
+  },
+  "Sem origem": { es: "Sin origen" },
+  "Sem campanha": { es: "Sin campaña" },
+  "Link removido": { es: "Enlace eliminado" },
+  "Sem campanha no período": { es: "Sin campaña en el período" },
+  "Mostrando as 40 maiores.": { es: "Mostrando las 40 mayores." },
+  "Por origem": { es: "Por origen" },
+  "Por campanha": { es: "Por campaña" },
+  "Por link": { es: "Por enlace" },
+  "Nenhum lead novo neste período.": { es: "Ningún lead nuevo en este período." },
+  "Ver no funil": { es: "Ver en el embudo" },
+  "Ver na caixa de entrada": { es: "Ver en la bandeja" },
+  "Mensagens recebidas": { es: "Mensajes recibidos" },
+  "Conversas com mensagem recebida": { es: "Conversaciones con mensaje recibido" },
+  "Primeira resposta": { es: "Primera respuesta" },
+  "Mediana (P50)": { es: "Mediana (P50)" },
+  "Conversas respondidas": { es: "Conversaciones respondidas" },
+  Amostra: { es: "Muestra" },
+  Respondidas: { es: "Respondidas" },
+  Consultas: { es: "Consultas" },
+  "Consulta agendada": { es: "Consulta agendada" },
+  "Consulta realizada": { es: "Consulta realizada" },
+  "Conta as entradas nas etapas Consulta agendada e Consulta realizada. Um lead que já nasce na etapa, sem movimentação registrada, não entra.": {
+    es: "Cuenta las entradas en las etapas Consulta agendada y Consulta realizada. Un lead que ya nace en la etapa, sin un movimiento registrado, no entra.",
+  },
+  "Leads ganhos": { es: "Leads ganados" },
+  "Sem moeda": { es: "Sin moneda" },
+  "Nenhum valor ganho neste período.": { es: "Ningún valor ganado en este período." },
+  "Cliques nos links": { es: "Clics en los enlaces" },
+  "Casaram com contato": { es: "Coincidieron con un contacto" },
+  "Casaram com lead": { es: "Coincidieron con un lead" },
+  Anúncios: { es: "Anuncios" },
+  "Conecte a conta de anúncios": { es: "Conecta la cuenta de anuncios" },
+  "O gasto e o custo por lead aparecem quando a conta está conectada.": {
+    es: "El gasto y el costo por lead aparecen cuando la cuenta está conectada.",
+  },
+  "Abrir conexão de anúncios": { es: "Abrir conexión de anuncios" },
+  "A conta está conectada. O gasto e o custo por lead ainda não são lidos daqui.": {
+    es: "La cuenta está conectada. El gasto y el costo por lead todavía no se leen desde aquí.",
+  },
+  "Gasto no período": { es: "Gasto en el período" },
+  "Custo por lead": { es: "Costo por lead" },
+  "A mediana só entra entre as conversas que tiveram resposta. Sem amostra, o número fica em branco.": {
+    es: "La mediana solo entra entre las conversaciones que tuvieron respuesta. Sin muestra, el número queda en blanco.",
+  },
+  "Período inválido.": { es: "Período no válido." },
+  "Não foi possível ler o painel agora.": { es: "No fue posible leer el panel ahora." },
 };
 
 /**

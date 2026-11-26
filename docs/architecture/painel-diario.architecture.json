@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Painel diário",
+    "subtitle": "o dia da operação, lido da janela e refeito a cada minuto",
+    "output": "painel-diario.html",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    {
+      "id": "dado",
+      "label": "De onde o número sai"
+    },
+    {
+      "id": "conta",
+      "label": "A conta"
+    },
+    {
+      "id": "tela",
+      "label": "Onde a pessoa vê e age"
+    }
+  ],
+  "mainPath": ["leads", "rpc", "rota", "tela", "menu"],
+  "nodes": [
+    {
+      "id": "leads",
+      "lane": "dado",
+      "col": 0,
+      "type": "table",
+      "label": "crm_leads",
+      "sublabel": "criados na janela e ganhos por closed_at"
+    },
+    {
+      "id": "mensagens",
+      "lane": "dado",
+      "col": 0,
+      "type": "table",
+      "label": "messages",
+      "sublabel": "inbound da janela — não se conta conversations"
+    },
+    {
+      "id": "atividades",
+      "lane": "dado",
+      "col": 0,
+      "type": "table",
+      "label": "crm_lead_activities",
+      "sublabel": "stage_changed para Consulta agendada e Consulta realizada"
+    },
+    {
+      "id": "cliques",
+      "lane": "dado",
+      "col": 1,
+      "type": "table",
+      "label": "meta_ads_click_refs",
+      "sublabel": "cliques da janela e o match com contato ou lead"
+    },
+    {
+      "id": "conexao",
+      "lane": "dado",
+      "col": 1,
+      "type": "table",
+      "label": "ad_insights_connections",
+      "sublabel": "só a existência da conexão; o gasto não é lido"
+    },
+    {
+      "id": "rpc",
+      "lane": "conta",
+      "col": 2,
+      "type": "table",
+      "label": "fn_painel_diario",
+      "sublabel": "security invoker, janela semiaberta, organização ativa"
+    },
+    {
+      "id": "rota",
+      "lane": "conta",
+      "col": 3,
+      "type": "api",
+      "label": "GET /api/v1/metrics/painel",
+      "sublabel": "hoje, 7d ou 30d, duas chamadas, comparação no processo"
+    },
+    {
+      "id": "tela",
+      "lane": "tela",
+      "col": 4,
+      "type": "route",
+      "label": "/app/painel",
+      "sublabel": "refetch a cada 60s; erro fica na tela com tentar de novo"
+    },
+    {
+      "id": "menu",
+      "lane": "tela",
+      "col": 5,
+      "type": "route",
+      "label": "Análise → Painel",
+      "sublabel": "lib/navigation/catalogo.ts, ao lado de Desempenho e Meta Ads"
+    },
+    {
+      "id": "ajuste",
+      "lane": "tela",
+      "col": 5,
+      "type": "route",
+      "label": "/app/settings/meta-ads",
+      "sublabel": "estado vazio quando não há conexão"
+    }
+  ],
+  "edges": [
+    { "id": "leads-rpc", "from": "leads", "to": "rpc", "label": "origem, campanha e ganho" },
+    { "id": "msg-rpc", "from": "mensagens", "to": "rpc", "label": "volume e P50" },
+    { "id": "atv-rpc", "from": "atividades", "to": "rpc", "label": "entradas de etapa" },
+    { "id": "clk-rpc", "from": "cliques", "to": "rpc", "label": "agregado, sem token" },
+    { "id": "cx-rpc", "from": "conexao", "to": "rpc", "label": "conectado ou vazio" },
+    { "id": "rpc-rota", "from": "rpc", "to": "rota", "label": "duas janelas" },
+    { "id": "rota-tela", "from": "rota", "to": "tela", "label": "retrato + comparação" },
+    { "id": "tela-menu", "from": "tela", "to": "menu", "label": "porta do dia" },
+    {
+      "id": "tela-ajuste",
+      "from": "tela",
+      "to": "ajuste",
+      "label": "sem conexão, o próximo passo"
+    },
+    {
+      "id": "tela-volta",
+      "from": "tela",
+      "to": "rota",
+      "label": "a cada 60s, ou ao trocar o período"
+    }
+  ],
+  "cards": [
+    {
+      "id": "nao-conta-conversations",
+      "title": "Não-ligação: conversations",
+      "body": "O volume de conversas sai das mensagens inbound da janela. Contar public.conversations sob a policy de leitura reavalia a visibilidade de cada linha da organização e não acompanha o período."
+    },
+    {
+      "id": "gasto-adiado",
+      "title": "Não-ligação: gasto da conta",
+      "body": "Com conexão, o card diz que o gasto ainda não é lido. Sem conexão, aponta para Configurações › Meta Ads. Nenhuma chamada à API de anúncios nasce deste painel."
+    }
+  ]
+}
