@@ -592,6 +592,14 @@ beforeAll(() => {
           values
             (v_org, v_sess, timestamptz '2030-01-01 03:00:00+00', timestamptz '2030-01-01 05:00:00+00');
         end if;
+
+        -- 0693: a meta do painel. A leitura é de qualquer membro (o agent
+        -- semeado aqui é o controle positivo). A escrita é manager+, medida
+        -- na rota. Vazar a linha entrega ao vizinho o alvo de venda da clínica.
+        if not exists (select 1 from public.painel_metas where organization_id = v_org) then
+          insert into public.painel_metas (organization_id, leads_atendidos_dia)
+          values (v_org, 1);
+        end if;
       end loop;
     end
     $seed$;
@@ -770,6 +778,11 @@ export const TABLES = [
   // medida em vinculo-do-agente-ao-numero.test.ts. O número PRINCIPAL segue em
   // ai_agent_versions.channel_session_id — esta tabela só acrescenta vínculos.
   "ai_agent_version_channels",
+  // migration 0693 — a meta diária (e a mensal, se existir) do painel. A
+  // LEITURA é org-scoped sem gate de papel, então o agent semeado lê a própria
+  // linha; a ESCRITA exige manager e é a policy de insert/update/delete, mais
+  // o piso da rota PUT /api/v1/metrics/painel/metas.
+  "painel_metas",
   // ⚠️ `cobranca_assinaturas` (migration 0583) NÃO entra nesta lista, pelo mesmo
   // motivo de `webhook_lead_captures`: a leitura é só do `admin` e o usuário
   // semeado aqui é `agent`, então o controle positivo falharia por ACERTO. A

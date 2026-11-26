@@ -64,12 +64,36 @@
       "sublabel": "só a existência da conexão; o gasto não é lido"
     },
     {
+      "id": "metas",
+      "lane": "dado",
+      "col": 1,
+      "type": "table",
+      "label": "painel_metas",
+      "sublabel": "meta diária e, se existir, mensal; uma linha por organização"
+    },
+    {
+      "id": "membros",
+      "lane": "dado",
+      "col": 0,
+      "type": "table",
+      "label": "user_organizations",
+      "sublabel": "papel agent entra no comparativo mesmo sem lead no período"
+    },
+    {
       "id": "rpc",
       "lane": "conta",
       "col": 2,
       "type": "table",
       "label": "fn_painel_diario",
       "sublabel": "security invoker, janela semiaberta, organização ativa"
+    },
+    {
+      "id": "comercial",
+      "lane": "conta",
+      "col": 2,
+      "type": "table",
+      "label": "fn_painel_comercial",
+      "sublabel": "security invoker; funil e quem vende, só user_id"
     },
     {
       "id": "rota",
@@ -111,6 +135,18 @@
     { "id": "clk-rpc", "from": "cliques", "to": "rpc", "label": "agregado, sem token" },
     { "id": "cx-rpc", "from": "conexao", "to": "rpc", "label": "conectado ou vazio" },
     { "id": "rpc-rota", "from": "rpc", "to": "rota", "label": "duas janelas" },
+    { "id": "leads-comercial", "from": "leads", "to": "comercial", "label": "dono atual e ganho" },
+    {
+      "id": "msg-comercial",
+      "from": "mensagens",
+      "to": "comercial",
+      "label": "saída humana e P50"
+    },
+    { "id": "atv-comercial", "from": "atividades", "to": "comercial", "label": "etapas do funil" },
+    { "id": "membros-comercial", "from": "membros", "to": "comercial", "label": "papel de vendas" },
+    { "id": "comercial-rota", "from": "comercial", "to": "rota", "label": "janela atual" },
+    { "id": "metas-rota", "from": "metas", "to": "rota", "label": "alvo gravado" },
+    { "id": "rota-metas", "from": "rota", "to": "metas", "label": "gerente grava" },
     { "id": "rota-tela", "from": "rota", "to": "tela", "label": "retrato + comparação" },
     { "id": "tela-menu", "from": "tela", "to": "menu", "label": "porta do dia" },
     {
@@ -136,6 +172,16 @@
       "id": "gasto-adiado",
       "title": "Não-ligação: gasto da conta",
       "body": "Com conexão, o card diz que o gasto ainda não é lido. Sem conexão, aponta para Configurações › Meta Ads. Nenhuma chamada à API de anúncios nasce deste painel."
+    },
+    {
+      "id": "meta-ausente",
+      "title": "Sem meta, o realizado fica",
+      "body": "Sem linha em painel_metas a tela mostra o que aconteceu e o convite para definir. A barra só existe quando há alvo. Nos 30 dias a meta do mês, se existir, substitui a diária na proporção da janela."
+    },
+    {
+      "id": "sem-nome-fixo",
+      "title": "Não-ligação: nome de pessoa no código",
+      "body": "O comparativo lista o user_id de quem tem papel de vendas ou movimento no período. O nome sai do resolvedor de atendente na hora da leitura. Nenhum nome de vendedora está no código."
     }
   ]
 }

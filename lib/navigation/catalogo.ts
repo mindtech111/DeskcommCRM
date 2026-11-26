@@ -822,7 +822,7 @@ export const NAV_CATALOG = [
     href: "/app/painel",
     label: "Painel",
     description:
-      "O dia da operação, atualizado a cada minuto: leads, conversas, consultas, vendas e anúncios.",
+      "O dia da operação, atualizado a cada minuto: metas, funil, quem vende, leads, conversas, consultas, vendas e anúncios.",
     icon: "ClockCountdown",
     group: "analise",
     section: "Os números do período",

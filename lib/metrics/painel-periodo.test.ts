@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { comparar } from "@/lib/metrics/painel";
-import { janelasDoPainel } from "@/lib/metrics/painel-periodo";
+import { duracaoDoMesCivil, janelasDoPainel } from "@/lib/metrics/painel-periodo";
 
 const FUSO = "America/Sao_Paulo";
 
@@ -48,6 +48,13 @@ describe("janelas do painel", () => {
 
     const trinta = janelasDoPainel("30d", agora, FUSO);
     expect(trinta.atual.inicio).toBe("2026-10-28T03:00:00.000Z");
+  });
+});
+
+describe("mês civil do painel", () => {
+  it("novembro de 2026 em São Paulo dura 30 dias, do dia 1 ao dia 1 do mês seguinte", () => {
+    const meio = new Date("2026-11-15T15:00:00.000Z");
+    expect(duracaoDoMesCivil(meio, FUSO)).toBe(30 * 86_400_000);
   });
 });
 

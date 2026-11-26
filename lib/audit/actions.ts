@@ -307,6 +307,9 @@ export const AUDIT_ACTIONS = [
   // Mudar a régua do abandono (spec 16 §5.2) muda como TODO período passa a ser
   // lido — é mutação relevante, não preferência de exibição.
   "metrics.atrito_regua_changed",
+  // A meta do painel muda o que a equipe lê como "o dia deu certo". Sem a
+  // linha, a barra muda e ninguém sabe quem definiu o número.
+  "painel.metas_updated",
   // O invariante 4 deixando de ser só leitura: quem marcou o próximo passo de
   // uma demanda, e qual. Sem isto, a única mutação que fecha o vazamento seria
   // a única sem rastro.

@@ -90,6 +90,17 @@ function iso(instante: Date): string {
   return instante.toISOString();
 }
 
+/** Duração do mês civil que contém `agora`, no fuso. Serve à meta mensal proporcional. */
+export function duracaoDoMesCivil(agora: Date, fuso: string): number {
+  const civil = partesNoFuso(agora, fuso);
+  const inicio = meiaNoiteCivil(civil.ano, civil.mes, 1, fuso);
+  const proximo =
+    civil.mes === 12
+      ? meiaNoiteCivil(civil.ano + 1, 1, 1, fuso)
+      : meiaNoiteCivil(civil.ano, civil.mes + 1, 1, fuso);
+  return proximo.getTime() - inicio.getTime();
+}
+
 export function janelasDoPainel(
   periodo: PeriodoPainel,
   agora: Date,
