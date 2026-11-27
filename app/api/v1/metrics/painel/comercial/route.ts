@@ -101,6 +101,9 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (resposta.erro === "janela_invalida") {
     return fail("validation_failed", t("Janela inválida (máximo de um ano)."), 422, { requestId });
   }
+  if (resposta.erro === "sem_permissao") {
+    return fail("forbidden", t("Sem permissão para o painel."), 403, { requestId });
+  }
   if (resposta.erro === "funil_inexistente") {
     return fail("not_found", t("Funil não encontrado."), 404, { requestId });
   }

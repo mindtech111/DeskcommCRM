@@ -16351,6 +16351,7 @@ export const DICIONARIO: Traducoes = {
     es: "Indicadores comerciales, embudo, canales y oportunidades, y debajo la atención del día.",
   },
   "Atendimento e equipe": { es: "Atención y equipo" },
+  "Mostrar atendimento e equipe": { es: "Mostrar atención y equipo" },
   "Meta do dia, conversas, primeira resposta e quem vende.": {
     es: "Meta del día, conversaciones, primera respuesta y quién vende.",
   },

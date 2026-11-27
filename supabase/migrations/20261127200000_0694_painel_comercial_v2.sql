@@ -1,4 +1,4 @@
--- manifest: Painel comercial v2 (pedido da gestão comercial da Inochi) — uma RPC security invoker que devolve KPIs, funil por safra seguindo as etapas reais do funil escolhido, canais, anúncios, série diária, oportunidades prioritárias e perdas por motivo.
+-- manifest: Painel comercial v2 (pedido da gestão comercial da Inochi) — uma RPC security definer com guarda (manager+, MFA) que devolve KPIs, funil por safra seguindo as etapas reais do funil escolhido, canais, anúncios, série diária, oportunidades prioritárias e perdas por motivo.
 -- 0694: painel comercial v2
 --
 -- Por que uma função nova e não mexer na 0692/0693:
@@ -21,8 +21,9 @@
 -- desqualificado) não entram na escada do funil: is_lost, ou nome que começa
 -- com "follow-up", "sem resposta", "reativa" ou "desqualific".
 --
--- SECURITY INVOKER: a RLS de crm_leads, crm_stages, crm_lead_activities,
--- contacts e crm_tasks continua valendo. Read-only.
+-- SECURITY DEFINER com guarda explícita (manager+ da organização, MFA provado),
+-- no molde da fn_painel_rastreio (0692): sob RLS linha a linha o agregado levou
+-- 52 s num banco Micro. Read-only.
 
 create or replace function public.fn_painel_rotulo_canal(p_source text, p_meta jsonb, p_tags text[], p_pipeline_nome text)
 returns text
@@ -83,7 +84,7 @@ create or replace function public.fn_painel_comercial_v2(
 ) returns jsonb
 language plpgsql
 stable
-security invoker
+security definer
 set search_path = ''
 as $fn$
 declare
@@ -93,6 +94,19 @@ declare
   v_pos_comp numeric;
   v_out jsonb;
 begin
+  -- Mesma guarda da fn_painel_rastreio (0692): definer para não pagar a RLS
+  -- linha a linha num agregado (medido: 52 s sob RLS num banco Micro), mas só
+  -- para manager+ da própria organização (ou admin de plataforma) com MFA provado.
+  if p_org is null
+     or not public.fn_session_mfa_proven()
+     or not (
+       public.fn_is_platform_admin()
+       or (p_org in (select public.fn_user_org_ids()) and public.fn_role_at_least(p_org, 'manager'))
+     )
+  then
+    return jsonb_build_object('erro', 'sem_permissao');
+  end if;
+
   if p_org is null or p_inicio is null or p_fim is null or p_inicio >= p_fim
      or (p_fim - p_inicio) > interval '370 days' then
     return jsonb_build_object('erro', 'janela_invalida');
@@ -134,26 +148,32 @@ begin
       from public.crm_leads l
      where l.organization_id = p_org and l.pipeline_id = v_pipeline
   ),
+  mov as (
+    select a.lead_id, max(es.position) as pos
+      from public.crm_lead_activities a
+      join escada es on es.id = case
+        when coalesce(a.payload->>'to_stage_id', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then (a.payload->>'to_stage_id')::uuid end
+     where a.organization_id = p_org and a.type = 'stage_changed'
+       and a.lead_id in (select id from leads where created_at >= p_inicio and created_at < p_fim)
+     group by a.lead_id
+  ),
   alcance as (
-    -- maior posição de escada já alcançada por lead (histórico + etapa atual; ganho = topo)
+    -- maior posição de escada já alcançada (histórico + etapa atual; ganho = topo)
     select l.id,
-           greatest(
-             coalesce((select max(es.position) from public.crm_lead_activities a
-                         join escada es on es.id = case
-                           when coalesce(a.payload->>'to_stage_id', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-                           then (a.payload->>'to_stage_id')::uuid end
-                        where a.lead_id = l.id and a.type = 'stage_changed'), -1),
-             coalesce((select es.position from escada es where es.id = l.stage_id), -1),
-             case when l.status = 'won' then (select max(position) from escada) else -1 end
-           ) as pos_max
+           greatest(coalesce(m.pos, -1),
+                    coalesce(es.position, -1),
+                    case when l.status = 'won' then (select max(position) from escada) else -1 end) as pos_max
       from leads l
+      left join mov m on m.lead_id = l.id
+      left join escada es on es.id = l.stage_id
+     where l.created_at >= p_inicio and l.created_at < p_fim
   ),
   safra as (
     select l.*, a.pos_max,
            public.fn_painel_rotulo_canal(l.source, l.source_metadata, l.tags, v_pipeline_nome) as canal,
            public.fn_painel_rotulo_anuncio(l.source_metadata) as anuncio
       from leads l join alcance a on a.id = l.id
-     where l.created_at >= p_inicio and l.created_at < p_fim
   ),
   ganhos_periodo as (
     select * from leads where status = 'won' and closed_at >= p_inicio and closed_at < p_fim
@@ -211,18 +231,25 @@ begin
                  ) as c
                  from safra where anuncio is not null group by anuncio order by count(*) desc limit 20) x),
     'sem_anuncio', (select count(*) from safra where anuncio is null),
-    'diario', (select coalesce(jsonb_agg(jsonb_build_object('dia', d.dia, 'leads', d.leads, 'agendamentos', d.agend, 'vendas', d.vendas) order by d.dia), '[]'::jsonb) from (
-                 select g.dia::date as dia,
-                        (select count(*) from leads l where (l.created_at at time zone 'America/Sao_Paulo')::date = g.dia::date) as leads,
-                        (select count(distinct a.lead_id) from public.crm_lead_activities a
-                           join etapas e on e.id = case when coalesce(a.payload->>'to_stage_id', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then (a.payload->>'to_stage_id')::uuid end
-                          where a.organization_id = p_org and a.type = 'stage_changed'
-                            and v_pos_agend is not null and e.position = v_pos_agend
-                            and (a.created_at at time zone 'America/Sao_Paulo')::date = g.dia::date) as agend,
-                        (select count(*) from leads l where l.status = 'won' and (l.closed_at at time zone 'America/Sao_Paulo')::date = g.dia::date) as vendas
-                   from generate_series((p_inicio at time zone 'America/Sao_Paulo')::date,
-                                        ((p_fim - interval '1 second') at time zone 'America/Sao_Paulo')::date,
-                                        interval '1 day') g(dia)) d),
+    'diario', (with dias as (
+                   select g.dia::date as dia
+                     from generate_series((p_inicio at time zone 'America/Sao_Paulo')::date,
+                                          ((p_fim - interval '1 second') at time zone 'America/Sao_Paulo')::date,
+                                          interval '1 day') g(dia)),
+                 dl as (select (created_at at time zone 'America/Sao_Paulo')::date as dia, count(*) as n
+                          from leads where created_at >= p_inicio and created_at < p_fim group by 1),
+                 dv as (select (closed_at at time zone 'America/Sao_Paulo')::date as dia, count(*) as n
+                          from leads where status = 'won' and closed_at >= p_inicio and closed_at < p_fim group by 1),
+                 da as (select (a.created_at at time zone 'America/Sao_Paulo')::date as dia, count(distinct a.lead_id) as n
+                          from public.crm_lead_activities a
+                          join etapas e on e.id = case when coalesce(a.payload->>'to_stage_id', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then (a.payload->>'to_stage_id')::uuid end
+                         where a.organization_id = p_org and a.type = 'stage_changed'
+                           and a.created_at >= p_inicio and a.created_at < p_fim
+                           and v_pos_agend is not null and e.position = v_pos_agend
+                         group by 1)
+               select coalesce(jsonb_agg(jsonb_build_object('dia', d.dia, 'leads', coalesce(dl.n, 0),
+                        'agendamentos', coalesce(da.n, 0), 'vendas', coalesce(dv.n, 0)) order by d.dia), '[]'::jsonb)
+                 from dias d left join dl on dl.dia = d.dia left join dv on dv.dia = d.dia left join da on da.dia = d.dia),
     'prioridades', (select coalesce(jsonb_agg(x order by (x->>'ordem')::numeric desc nulls last, x->>'ultimo_contato' asc nulls first), '[]'::jsonb) from (
                  select jsonb_build_object(
                    'lead_id', a.id,

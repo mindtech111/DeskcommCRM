@@ -5,7 +5,7 @@ import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK, escreveComoPlatformAdmin } from "@/lib/auth/types";
 import { traduzir } from "@/lib/i18n/dicionario";
 
-import { PainelClient } from "./_components/PainelClient";
+import { SecaoAtendimento } from "./_components/SecaoAtendimento";
 import { VisaoComercial } from "./_components/VisaoComercial";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +38,7 @@ export default async function PainelPage() {
         <p className="mb-4 text-xs text-muted-foreground">
           {t("Meta do dia, conversas, primeira resposta e quem vende.")}
         </p>
-        <PainelClient podeConectar={podeConectar} />
+        <SecaoAtendimento podeConectar={podeConectar} />
       </div>
     </div>
   );
