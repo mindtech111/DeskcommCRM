@@ -28,11 +28,9 @@ export default async function LeadPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const user = await requireAuth();
+  const [user, { id }] = await Promise.all([requireAuth(), params]);
   const activeOrg = await resolveActiveOrg(user);
   if (!activeOrg) notFound();
-
-  const { id } = await params;
 
   const supabase = await createClient();
   // A RLS enxerga TODAS as organizações do usuário (`fn_user_org_ids()`), então

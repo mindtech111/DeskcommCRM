@@ -46,6 +46,8 @@ interface KanbanCardProps {
   onSelect?: (leadId: string, gesto: GestoDeSelecao) => void;
   /** Abrir o dossiê. Separado de `onSelect`: são gestos e intenções diferentes. */
   onOpen?: (leadId: string) => void;
+  /** Ponteiro no card: o quadro precarrega a timeline do dossiê. */
+  aoApontar?: () => void;
 }
 
 function formatValor(cents: number | null, currency: string | null): string | null {
@@ -77,6 +79,7 @@ export function KanbanCard({
   pulseCount = 0,
   onSelect,
   onOpen,
+  aoApontar,
 }: KanbanCardProps) {
   const t = useT();
   const value = formatValor(card.valueCents, card.currency);
@@ -135,6 +138,7 @@ export function KanbanCard({
           role="group"
           aria-label={`${t("Lead")}: ${card.title}`}
           onClick={handleClick}
+          onPointerEnter={() => aoApontar?.()}
           // Tags saem do card (Lei A): ficam a um hover, sem ocupar altura.
           title={card.tags.length > 0 ? `Tags: ${card.tags.join(", ")}` : undefined}
           className={cn(

@@ -4,6 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
 import { fetchDoServidor } from "@/lib/supabase/fetch-do-servidor";
 import { urlDoSupabaseNoServidor } from "@/lib/supabase/url-do-servidor";
+import { identificarUsuario } from "@/lib/auth/identificar-usuario";
 import { isPublicPath } from "@/lib/auth/public-paths";
 import { CABECALHO_SEM_CSS, PARAMETRO_SEM_CSS } from "@/lib/branding/sem-css-personalizado";
 import {
@@ -92,12 +93,14 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  // Validate JWT server-side (NEVER use getSession on backend per CLAUDE.md).
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Assinatura do JWT (`getClaims`), nunca `getSession` — aquele lê o cookie
+  // e acredita. O refresh, quando o access token está perto de expirar,
+  // acontece dentro do `getClaims` antes da verificação. Com chave simétrica
+  // o SDK chama `getUser` uma vez por dentro; o fallback do helper só existe
+  // para dublê sem `getClaims`.
+  const { usuario } = await identificarUsuario(supabase);
 
-  if (!user) {
+  if (!usuario) {
     // API routes must respond with JSON envelope (contract: {error:{code,message}})
     // — never redirect HTML to JSON consumers. UI routes redirect to /login as before.
     if (pathname.startsWith("/api/")) {

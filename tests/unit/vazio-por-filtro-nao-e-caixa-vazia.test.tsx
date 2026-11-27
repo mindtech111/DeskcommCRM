@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 
@@ -48,12 +49,14 @@ function listaFalsa({ itens = [], hasNextPage = false }: { itens?: unknown[]; ha
 
 function montar(filters: ConversationsFilters, hasNextPage = false) {
   return render(
-    <ConversationList
-      listQuery={listaFalsa({ itens: [], hasNextPage })}
-      filters={filters}
-      selectedId={null}
-      onSelect={() => undefined}
-    />,
+    <QueryClientProvider client={new QueryClient()}>
+      <ConversationList
+        listQuery={listaFalsa({ itens: [], hasNextPage })}
+        filters={filters}
+        selectedId={null}
+        onSelect={() => undefined}
+      />
+    </QueryClientProvider>,
   );
 }
 

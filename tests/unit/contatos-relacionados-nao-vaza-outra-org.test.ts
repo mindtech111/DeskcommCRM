@@ -34,9 +34,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createClient } from "@/lib/supabase/server";
 import { GET } from "@/app/api/v1/leads/[id]/contatos-relacionados/route";
 
+const auth = vi.hoisted(() => ({ logado: true }));
+
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/auth/server", () => ({
-  loadAuthUser: vi.fn(async () => ({ idioma: "pt-BR" })),
+  // A rota identifica por `loadAuthUser` (getClaims). Sem sessão ele devolve
+  // null — o 401 sai daí, não de um segundo getUser().
+  loadAuthUser: vi.fn(async () => (auth.logado ? { id: "usuario-1", idioma: "pt-BR" } : null)),
 }));
 
 const ORG_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -132,6 +136,7 @@ function montarBanco(
     ) => Promise.resolve({ data: linhas(), error: null }).then(aoOk, aoErr);
     return elo;
   };
+  auth.logado = sessao !== null;
   vi.mocked(createClient).mockResolvedValue({
     auth: {
       getUser: async () =>

@@ -74,6 +74,8 @@ interface Props {
    * conversa, e quem abre não marca.
    */
   onAlternarSelecao?: (id: string) => void;
+  /** Ponteiro ou foco na linha: o pai precarrega a conversa antes do clique. */
+  aoApontar?: (id: string) => void;
 }
 
 /**
@@ -149,6 +151,7 @@ export function ConversationListItem({
   automaticoDaOrg,
   selecionado = false,
   onAlternarSelecao,
+  aoApontar,
 }: Props) {
   const localeDaData = useLocaleDeData();
   const t = useT();
@@ -278,6 +281,8 @@ export function ConversationListItem({
         type="button"
         data-conversation-id={conversation.id}
         onClick={() => onSelect(conversation.id)}
+        onPointerEnter={() => aoApontar?.(conversation.id)}
+        onFocus={() => aoApontar?.(conversation.id)}
         className={cn(
           "group relative flex min-w-0 flex-1 items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-elevated",
           "focus-visible:outline-hidden focus-visible:bg-surface-elevated",

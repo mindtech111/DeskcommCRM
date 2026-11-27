@@ -10,7 +10,7 @@ export const supportSchema = z.object({
 });
 export type SupportContext = z.infer<typeof supportSchema>;
 
-/** Chamar depois de getUser. A RPC resolve auth.uid + auth.session_id, nunca cookie. */
+/** Chamar depois de identificar o usuário. A RPC resolve auth.uid + auth.session_id pelo JWT, nunca por cookie cru. */
 export async function readSupportContext(db: Awaited<ReturnType<typeof createClient>>): Promise<SupportContext | null> {
   const { data, error } = await db.rpc("fn_support_context");
   if (error) throw new Error("Não foi possível confirmar o acompanhamento administrativo.");
@@ -51,6 +51,9 @@ export async function supportCallbackWriteAllowed(organizationId: string, actorI
 }
 export async function authenticatedSessionId(): Promise<string> {
   const db = await createClient();
+  // getUser() permanece: o id de sessão do acompanhamento só vale se o Auth
+  // server ainda reconhece o usuário. getClaims() em seguida lê o session_id
+  // do JWT — as duas perguntas são diferentes, e a primeira não pode ser local.
   const { data: { user } } = await db.auth.getUser();
   if (!user) throw new Error("Sessão ausente.");
   const { data } = await db.auth.getClaims();

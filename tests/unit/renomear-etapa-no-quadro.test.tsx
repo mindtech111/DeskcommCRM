@@ -6,6 +6,7 @@
 // nem o que foi cancelado com Escape.
 
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { DragDropContext } from "@hello-pangea/dnd";
 import { describe, expect, it, vi } from "vitest";
@@ -27,15 +28,17 @@ const etapa = {
 function montar(podeRenomear: boolean) {
   const onRenomear = vi.fn();
   render(
-    <DragDropContext onDragEnd={() => {}}>
-      <StageColumn
-        stage={etapa}
-        leads={[]}
-        pipelineId={etapa.pipeline_id}
-        podeRenomear={podeRenomear}
-        onRenomear={onRenomear}
-      />
-    </DragDropContext>,
+    <QueryClientProvider client={new QueryClient()}>
+      <DragDropContext onDragEnd={() => {}}>
+        <StageColumn
+          stage={etapa}
+          leads={[]}
+          pipelineId={etapa.pipeline_id}
+          podeRenomear={podeRenomear}
+          onRenomear={onRenomear}
+        />
+      </DragDropContext>
+    </QueryClientProvider>,
   );
   return onRenomear;
 }

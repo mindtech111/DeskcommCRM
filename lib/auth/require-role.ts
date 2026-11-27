@@ -7,8 +7,8 @@
  * "matriz advisória").
  *
  * Fluxo:
- *  1. `loadAuthUser()` — valida o JWT via `supabase.auth.getUser()` (nunca
- *     `getSession()`); 401 se não autenticado.
+ *  1. `loadAuthUser()` — identifica via `getClaims()` (assinatura do JWT;
+ *     nunca `getSession()`); 401 se não autenticado.
  *  2. `orgAtivaSemPortao()` — org ativa de fonte confiável (cookie validado
  *     contra memberships), NUNCA do body; 403 `forbidden_tenant` se ausente.
  *     SEM o portão de `resolveActiveOrg`: aquele REDIRECIONA a org suspensa, e

@@ -100,7 +100,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
      *    este layout — a cerca anterior lia o texto-fonte e reprovava esta
      *    refatoração sem que nada tivesse quebrado.
      */
-    const [orgRes, conexoes, isEnrolled, mfaRequired, modulos] = await Promise.all([
+    const [orgRes, conexoes, isEnrolled, mfaRequired, modulos, marcaDaBase] = await Promise.all([
       admin
         .from("organizations")
         .select("onboarded_at, status, settings, timezone")
@@ -116,6 +116,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       ),
       // Da INSTALAÇÃO: decide se a porta de um módulo opcional entra no menu.
       modulosLigados(admin),
+      // Não depende da linha da organização. Resolver a cor espera o settings;
+      // buscar a marca da instalação não.
+      marcaDaInstalacao(),
     ]);
 
     const orgRow = orgRes.data;
@@ -170,11 +173,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // instalacao.ts`), e a derivação da cor é cacheada por régua+semente em
     // `resolve.ts` — a marca custa uma consulta a cada 30s e um lookup de Map
     // por render, não uma derivação de rampa por requisição.
-    const marca = resolverMarcaDaOrganizacao(
-      orgRow?.settings ?? null,
-      await marcaDaInstalacao(),
-      env,
-    );
+    const marca = resolverMarcaDaOrganizacao(orgRow?.settings ?? null, marcaDaBase, env);
 
     // SÓ quando a cor veio mesmo da organização. Se ela não configurou nada, a
     // resolução devolve a cor da instalação — e reemiti-la aqui, escopada no

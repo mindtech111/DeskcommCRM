@@ -28,6 +28,7 @@
 // são a prova de que, com uma moeda, a tela não muda nada.
 
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DragDropContext } from "@hello-pangea/dnd";
 import { describe, expect, it, vi } from "vitest";
 
@@ -79,9 +80,11 @@ function lead(over: Partial<Lead>): Lead {
 
 function montar(leads: Lead[], stage: Stage = etapa) {
   return render(
-    <DragDropContext onDragEnd={() => {}}>
-      <StageColumn stage={stage} leads={leads} pipelineId={etapa.pipeline_id} />
-    </DragDropContext>,
+    <QueryClientProvider client={new QueryClient()}>
+      <DragDropContext onDragEnd={() => {}}>
+        <StageColumn stage={stage} leads={leads} pipelineId={etapa.pipeline_id} />
+      </DragDropContext>
+    </QueryClientProvider>,
   );
 }
 

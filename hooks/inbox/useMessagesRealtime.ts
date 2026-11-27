@@ -5,6 +5,7 @@ import { useRealtimeChannel } from "@/hooks/realtime/useRealtimeChannel";
 import { useRefetchDeSeguranca } from "@/hooks/realtime/useRefetchDeSeguranca";
 import { agendarRecargaDasConversas } from "@/hooks/inbox/recargaDasConversas";
 import { apiClient } from "@/lib/api/client";
+import { FRESCURA_DA_TELA_MS } from "@/lib/query/frescura";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import type { Message } from "@/lib/types/messaging";
 
@@ -20,6 +21,7 @@ export function useMessagesRealtime(conversationId: string | null) {
   const query = useInfiniteQuery({
     queryKey,
     enabled: !!conversationId,
+    staleTime: FRESCURA_DA_TELA_MS,
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       if (!conversationId) {
