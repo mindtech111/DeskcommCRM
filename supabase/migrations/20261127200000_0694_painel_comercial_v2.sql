@@ -124,7 +124,8 @@ begin
   end if;
 
   select min(s.position) filter (where lower(s.name) like '%agend%'),
-         min(s.position) filter (where lower(s.name) like '%compareceu%' or lower(s.name) like '%realizad%')
+         coalesce(min(s.position) filter (where lower(s.name) like '%compareceu%'),
+                  min(s.position) filter (where lower(s.name) like '%realizad%' and lower(s.name) not like '%agend%'))
     into v_pos_agend, v_pos_comp
     from public.crm_stages s
    where s.pipeline_id = v_pipeline and coalesce(s.is_archived, false) = false
