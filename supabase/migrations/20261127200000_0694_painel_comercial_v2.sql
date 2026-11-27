@@ -14,7 +14,8 @@
 --
 -- Papéis de etapa sem nome fixo: "agendamento" é a primeira etapa (por
 -- posição) cujo nome contém "agend"; "comparecimento" é a primeira que contém
--- "compareceu" ou "realizad". Sem etapa assim, o indicador volta nulo (não
+-- "compareceu" (ou, sem ela, "realizad" sem "agend": "Agendamento realizado" é
+-- agendamento, não comparecimento). Sem etapa assim, o indicador volta nulo (não
 -- zero fingindo medição).
 --
 -- Etapas fora do funil principal (perda, follow-up, sem resposta, reativação,
