@@ -67,6 +67,9 @@ export function BulkActionBar({
   const vocab = resolveVocabulary(vocabulary);
   const bulk = useBulkAction(pipelineId);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmUnassign, setConfirmUnassign] = useState(false);
+  // Quem o lote vai receber, entre o clique no menu e a confirmação.
+  const [atribuirA, setAtribuirA] = useState<{ id: string; nome: string } | null>(null);
   const [loseOpen, setLoseOpen] = useState(false);
   const [tagInput, setTagInput] = useState("");
   // D10: só olha propostas quando a confirmação de excluir abre, e no máximo
@@ -107,7 +110,12 @@ export function BulkActionBar({
   const podeAtribuir = Boolean(
     user.is_platform_admin || (activeOrg && ROLE_RANK[activeOrg.role] >= ROLE_RANK.manager),
   );
-  const { data: members } = useAssignableMembers(podeAtribuir);
+  // Enquanto a lista de atendentes não chega, o menu fica DESABILITADO — e não
+  // aberto com só "Eu". No incidente de 09/11/2026 o menu aberto antes da lista
+  // carregar tinha dois itens, "Eu" e "Remover responsável", e o segundo tirou o
+  // dono de 50 negócios num clique. Menu que muda de forma enquanto se mira nele
+  // é menu que faz clicar no item errado.
+  const { data: members, isPending: membrosCarregando } = useAssignableMembers(podeAtribuir);
 
   // Esc to clear selection
   useEffect(() => {
@@ -144,7 +152,24 @@ export function BulkActionBar({
     );
   };
 
-  const runAssign = (ownerId: string | null) => {
+  // A troca de dono é UMA escrita no banco (tudo ou nada, migration 0689), e
+  // o servidor devolve quantos negócios ela tocou. Se for menos do que a tela
+  // mandou (card excluído ou movido por outra pessoa no meio do caminho), o
+  // aviso diz a diferença em vez de um "atribuídos" que não conta a verdade.
+  const avisaSeFaltou = (aplicados: number) => {
+    if (aplicados < selectedIds.length) {
+      toast.warning(
+        `${aplicados}/${selectedIds.length} — ${t("os demais já não estavam acessíveis.")}`,
+      );
+    }
+  };
+
+  // Atribuir SEMPRE leva um dono (a rota recusa `owner_required` sem ele), e
+  // passa por confirmação com a contagem e o NOME de quem recebe: o "N
+  // selecionados" que se lê antes de aplicar é o mesmo N que vai ao servidor.
+  // Deixar sem responsável é `runUnassign`, outra ação, nunca um item do menu
+  // que atribui.
+  const runAssign = (ownerId: string) => {
     bulk.mutate(
       {
         action: "assign",
@@ -154,11 +179,24 @@ export function BulkActionBar({
       {
         onSuccess: (res) => {
           const n = res.data.updated_count;
-          toast.success(
-            ownerId === null
-              ? `${n} ${t(n > 1 ? "ficaram sem responsável." : "ficou sem responsável.")}`
-              : `${n} ${t(n > 1 ? "atribuídos." : "atribuído.")}`,
-          );
+          toast.success(`${n} ${t(n > 1 ? "atribuídos." : "atribuído.")}`);
+          avisaSeFaltou(n);
+          setAtribuirA(null);
+          onClear();
+        },
+      },
+    );
+  };
+
+  const runUnassign = () => {
+    bulk.mutate(
+      { action: "unassign", lead_ids: selectedIds, params: {} },
+      {
+        onSuccess: (res) => {
+          const n = res.data.updated_count;
+          toast.success(`${n} ${t(n > 1 ? "ficaram sem responsável." : "ficou sem responsável.")}`);
+          avisaSeFaltou(n);
+          setConfirmUnassign(false);
           onClear();
         },
       },
@@ -253,25 +291,41 @@ export function BulkActionBar({
         {podeAtribuir && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline" disabled={bulk.isPending}>
+              <Button size="sm" variant="outline" disabled={bulk.isPending || membrosCarregando}>
                 {t("Responsável…")}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={() => runAssign(user.id)}>{t("Eu")}</DropdownMenuItem>
+              <DropdownMenuLabel>{t("Atribuir a")}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setAtribuirA({ id: user.id, nome: t("você") })}>
+                {t("Eu")}
+              </DropdownMenuItem>
               {(members ?? [])
                 .filter((m) => m.user_id !== user.id)
                 .map((m) => (
-                  <DropdownMenuItem key={m.user_id} onClick={() => runAssign(m.user_id)}>
+                  <DropdownMenuItem
+                    key={m.user_id}
+                    onClick={() => setAtribuirA({ id: m.user_id, nome: m.full_name ?? t("Sem nome") })}
+                  >
                     {m.full_name ?? t("Sem nome")}
                   </DropdownMenuItem>
                 ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => runAssign(null)}>
-                {t("Remover responsável")}
-              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+        )}
+
+        {/* Ação PRÓPRIA, fora do menu de atribuir e atrás de confirmação: tirar o
+            responsável de N negócios os tira da fila de quem cuidava deles. */}
+        {podeAtribuir && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setConfirmUnassign(true)}
+            disabled={bulk.isPending}
+          >
+            {t("Desatribuir…")}
+          </Button>
         )}
 
         <DropdownMenu>
@@ -380,6 +434,54 @@ export function BulkActionBar({
             </Button>
             <Button variant="destructive" onClick={runDelete} disabled={bulk.isPending}>
               {t("Excluir")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={atribuirA !== null} onOpenChange={(aberto) => !aberto && setAtribuirA(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {selectedIds.length === 1
+                ? `${t("Atribuir a")} ${atribuirA?.nome ?? ""}: 1 ${vocab.lead}?`
+                : `${t("Atribuir a")} ${atribuirA?.nome ?? ""}: ${selectedIds.length} ${t("selecionados")}?`}
+            </DialogTitle>
+            <DialogDescription>
+              {t("A troca é feita de uma vez: ou todos mudam de responsável, ou nenhum muda.")}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setAtribuirA(null)}>
+              {t("Cancelar")}
+            </Button>
+            <Button onClick={() => atribuirA && runAssign(atribuirA.id)} disabled={bulk.isPending}>
+              {t("Confirmar")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmUnassign} onOpenChange={setConfirmUnassign}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {selectedIds.length === 1
+                ? `${t("Deixar sem responsável")}: 1 ${vocab.lead}?`
+                : `${t("Deixar sem responsável")}: ${selectedIds.length} ${t("selecionados")}?`}
+            </DialogTitle>
+            <DialogDescription>
+              {t(
+                "Os selecionados saem da carteira de quem cuida deles hoje e ficam sem responsável até serem atribuídos de novo.",
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmUnassign(false)}>
+              {t("Cancelar")}
+            </Button>
+            <Button variant="destructive" onClick={runUnassign} disabled={bulk.isPending}>
+              {t("Deixar sem responsável")}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -307,4 +307,91 @@ describe("webPushInboundHandler", () => {
       expect(enviarPushAQuemVeAConversaMock).not.toHaveBeenCalled();
     });
   });
+
+  describe("troca de dono em lote (migration 0689) — UM aviso, nunca N", () => {
+    beforeEach(() => {
+      state.vapidPronto = true;
+      enviarPushAoUsuarioMock.mockResolvedValue({ sent: 1, gone: 0 });
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        maybeSingle: async () => ({
+          data: { title: "Maria", owner_user_id: "u-fernanda", pipeline_id: "p-1" },
+          error: null,
+        }),
+      };
+      fromMock.mockImplementation(() => chain);
+    });
+
+    function linha(event_type: string, payload: Record<string, unknown>) {
+      return {
+        id: `e-${event_type}`,
+        organization_id: "org1",
+        event_type,
+        entity_kind: "crm_lead",
+        entity_id: null,
+        payload,
+        metadata: {},
+        consumed_by: [],
+        attempts: 0,
+      };
+    }
+
+    it("lead.assigned carimbado com lote_id não vira push e nem lê o lead", async () => {
+      const result = await webPushInboundHandler.handle(
+        linha("lead.assigned", { lead_id: "l1", to_user_id: "u-fernanda", lote_id: "lote-1" }),
+      );
+      expect(result.status).toBe("skipped");
+      expect(result.detail).toBe("aviso_pelo_lote");
+      expect(enviarPushAoUsuarioMock).not.toHaveBeenCalled();
+      expect(fromMock).not.toHaveBeenCalled();
+    });
+
+    it("lead.assigned avulso (sem lote) segue avisando o novo dono", async () => {
+      const result = await webPushInboundHandler.handle(
+        linha("lead.assigned", { lead_id: "l1", to_user_id: "u-fernanda" }),
+      );
+      expect(result.status).toBe("ok");
+      expect(enviarPushAoUsuarioMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("lead.bulk_assigned de 175 → um push só, ao novo dono, com a contagem", async () => {
+      const ids = Array.from({ length: 175 }, (_, i) => `l${i}`);
+      const result = await webPushInboundHandler.handle(
+        linha("lead.bulk_assigned", {
+          action: "assign",
+          lead_ids: ids,
+          lote_id: "lote-1",
+          params: { owner_user_id: "u-fernanda" },
+        }),
+      );
+      expect(result.status).toBe("ok");
+      expect(enviarPushAoUsuarioMock).toHaveBeenCalledTimes(1);
+      const [org, dono, payload] = enviarPushAoUsuarioMock.mock.calls[0]!;
+      expect(org).toBe("org1");
+      expect(dono).toBe("u-fernanda");
+      expect(payload.body).toBe("175 leads foram atribuídos a você");
+      expect(payload.href).toBe("/app/pipelines/p-1");
+      // Um lead lido (o do link), não 175.
+      expect(fromMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("lote desatribuído (owner null) → ninguém é avisado", async () => {
+      const result = await webPushInboundHandler.handle(
+        linha("lead.bulk_assigned", {
+          action: "unassign",
+          lead_ids: ["l1", "l2"],
+          lote_id: "lote-2",
+          params: { owner_user_id: null },
+        }),
+      );
+      expect(result.status).toBe("skipped");
+      expect(result.detail).toBe("sem_destinatario");
+      expect(enviarPushAoUsuarioMock).not.toHaveBeenCalled();
+    });
+
+    it("o handler declara lead.bulk_assigned (senão o drain nunca o entrega)", () => {
+      expect(webPushInboundHandler.events).toContain("lead.bulk_assigned");
+    });
+  });
 });

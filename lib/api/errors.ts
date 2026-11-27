@@ -174,6 +174,7 @@ export const ApiErrorCodes = {
   janela_fechada: "janela_fechada", // POST /messages por token/agente com texto livre fora das 24h em canal com restrição (131047) — a saída é modelo aprovado (#1614)
   invalid_state_transition: "invalid_state_transition",
   invalid_owner: "invalid_owner", // novo dono não é membro ativo agent+ da org (bulk assign, G3-04)
+  owner_required: "owner_required", // bulk assign sem dono: tirar o dono é a ação `unassign`, nunca `assign` com null
   trigger_kind_not_implemented: "trigger_kind_not_implemented", // publish de followup-flow com kind sem motor de enrollment (stage_change/conversation_end)
   // PATCH /api/v1/ai/jev ao ligar. Dois códigos porque são duas ações de quem lê:
   // colar e testar a chave, ou marcar o aceite de mandar a mensagem para fora.

@@ -364,7 +364,7 @@ owner: Rafael Melgaço
 - **Tipo**: Hard constraint
 - **Regra**: GIVEN atendente seleciona N cards no Kanban; WHEN N > 50 e tenta executar bulk; THEN retorna 422 `bulk_too_large`. UI mostra erro com sugestão "selecione até 50 ou use filtro + script".
 - **Enforcement**: API + UI.
-- **Exceção**: Nenhuma no MVP.
+- **Exceção**: a troca de dono (`assign` e `unassign`) vai até **1000** por request, numa escrita só, tudo ou nada (`fn_atribuir_leads_em_lote`, migration 0689). Motivo: em lotes de 50 uma chamada que falhava no meio deixava parte do funil reatribuída e parte não (incidente de 09/11/2026). 1000 é o `max_rows` do PostgREST, o maior quadro que a tela carrega. Para conferir o teto em vigor: `grep -n "LEADS_POR_ATRIBUICAO =" lib/kanban/selecao.ts`.
 
 ### AT-07 — Mensagem >4096 chars é chunkada automaticamente
 - **Origem**: Sub-PRD 03 §3.10 (edge case)

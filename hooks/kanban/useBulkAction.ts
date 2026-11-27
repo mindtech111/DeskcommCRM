@@ -5,7 +5,7 @@ import { apiClient } from "@/lib/api/client";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import type { BulkLeadActionInput } from "@/lib/schemas/leads";
 import { liberarEcoLocal, marcarEcoLocal } from "@/lib/kanban/local-echo";
-import { lotesDeIds } from "@/lib/kanban/selecao";
+import { LEADS_POR_ATRIBUICAO, lotesDeIds } from "@/lib/kanban/selecao";
 
 export function useBulkAction(pipelineId: string) {
   const qc = useQueryClient();
@@ -26,7 +26,12 @@ export function useBulkAction(pipelineId: string) {
       // atômico, o conjunto de lotes não. Um erro no terceiro de cinco deixa
       // dois aplicados — e quem executou fica sabendo QUANTOS, em vez de
       // receber só "deu erro" e ter de contar os cards na mão.
-      const lotes = lotesDeIds(input.lead_ids);
+      //
+      // Exceção: trocar o dono (`assign`/`unassign`) vai numa chamada SÓ, até
+      // 1000 — o banco aplica tudo ou nada (migration 0689). Era exatamente o
+      // "dois de cinco aplicados" acima que deixava um funil meio reatribuído.
+      const trocaDeDono = input.action === "assign" || input.action === "unassign";
+      const lotes = lotesDeIds(input.lead_ids, trocaDeDono ? LEADS_POR_ATRIBUICAO : undefined);
       let aplicados = 0;
       for (const lead_ids of lotes) {
         try {

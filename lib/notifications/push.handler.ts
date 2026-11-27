@@ -211,6 +211,37 @@ async function enviarParaUsuario(
   return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "ok", detail: `sent:${sent}` };
 }
 
+/**
+ * `lead.bulk_assigned` → UM aviso ao novo dono, com a contagem (migration 0689).
+ *
+ * O payload é o da rota `POST /api/v1/leads/bulk`: `lead_ids` (os que a escrita
+ * tocou de fato) e `params.owner_user_id`. Dono null é o `unassign` — ninguém
+ * passou a cuidar de nada, então não há a quem avisar. O link é o funil do
+ * primeiro negócio do lote: o lote sai de um quadro só.
+ */
+async function handleLoteAtribuido(row: EventRow): Promise<HandlerResult> {
+  const params = (row.payload.params ?? {}) as { owner_user_id?: unknown };
+  const dono = typeof params.owner_user_id === "string" ? params.owner_user_id : null;
+  if (!dono) {
+    return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "sem_destinatario" };
+  }
+  const ids = Array.isArray(row.payload.lead_ids)
+    ? row.payload.lead_ids.filter((id): id is string => typeof id === "string")
+    : [];
+  const primeiro = ids[0];
+  if (!primeiro) {
+    return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "sem_lead" };
+  }
+  const lead = await leadBits(row.organization_id, primeiro);
+  const n = ids.length;
+  return enviarParaUsuario(row.organization_id, dono, {
+    title: n === 1 ? "Lead atribuído a você" : "Leads atribuídos a você",
+    body: n === 1 ? truncar(lead.title) : `${n} leads foram atribuídos a você`,
+    tag: `lead-bulk-assigned:${row.id}`,
+    href: hrefDoLead(lead.pipelineId),
+  });
+}
+
 export const webPushInboundHandler: EventHandler = {
   key: WEB_PUSH_INBOUND_KEY,
   naOrgParada: "pula",
@@ -218,6 +249,9 @@ export const webPushInboundHandler: EventHandler = {
     "message.received",
     "message.group_received",
     "lead.assigned",
+    // Troca de dono em lote (migration 0689): UM aviso ao novo dono pelo
+    // agregado, em vez de um por negócio.
+    "lead.bulk_assigned",
     "lead.won",
     "lead.lost",
     "user.mentioned",
@@ -231,6 +265,14 @@ export const webPushInboundHandler: EventHandler = {
     if (row.event_type === "message.received") return handleInbound(row);
     if (row.event_type === "message.group_received") return handleGroupInbound(row);
     if (row.event_type === "central.aviso_criado") return handleAvisoQuePedeGente(row);
+    if (row.event_type === "lead.bulk_assigned") return handleLoteAtribuido(row);
+    // O `lead.assigned` que nasceu de um lote (o gatilho carimba `lote_id`,
+    // migration 0689) não vira push: quem avisa é o `lead.bulk_assigned`
+    // daquele lote. Antes de ler o lead — 175 negócios reatribuídos não podem
+    // custar 175 leituras para nenhum aviso.
+    if (row.event_type === "lead.assigned" && typeof row.payload.lote_id === "string") {
+      return { consumer_key: WEB_PUSH_INBOUND_KEY, status: "skipped", detail: "aviso_pelo_lote" };
+    }
 
     if (row.event_type === "user.mentioned") {
       const toUserId = typeof row.payload.to_user_id === "string" ? row.payload.to_user_id : null;
