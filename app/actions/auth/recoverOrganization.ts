@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
+import { renovarJwtDepoisDoPerfil } from "@/lib/auth/renovar-jwt";
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureTenantForUser } from "@/lib/auth/provision";
@@ -151,6 +152,9 @@ export async function recoverOrganization(name: string, planoId?: string): Promi
       if (plano.data) {
         const { error: erroDoPlano } = await supabase.auth.updateUser({ data: comPlano });
         if (erroDoPlano) throw new Error(`plano do pedido não gravado: ${erroDoPlano.message}`);
+        // O JWT não acompanha o user_metadata sozinho (ver renovar-jwt.ts).
+        const jwtVelho = await renovarJwtDepoisDoPerfil(supabase);
+        if (jwtVelho) throw new Error(`plano do pedido não entrou na sessão: ${jwtVelho}`);
       }
       const pedido = await createRegistrationRequest(authUser.id, parsed.data);
       if (pedido.created) {

@@ -4,7 +4,6 @@ import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
 import { fetchDoServidor } from "@/lib/supabase/fetch-do-servidor";
 import { urlDoSupabaseNoServidor } from "@/lib/supabase/url-do-servidor";
-import { identificarUsuario } from "@/lib/auth/identificar-usuario";
 import { isPublicPath } from "@/lib/auth/public-paths";
 import { CABECALHO_SEM_CSS, PARAMETRO_SEM_CSS } from "@/lib/branding/sem-css-personalizado";
 import {
@@ -93,14 +92,18 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  // Assinatura do JWT (`getClaims`), nunca `getSession` — aquele lê o cookie
-  // e acredita. O refresh, quando o access token está perto de expirar,
-  // acontece dentro do `getClaims` antes da verificação. Com chave simétrica
-  // o SDK chama `getUser` uma vez por dentro; o fallback do helper só existe
-  // para dublê sem `getClaims`.
-  const { usuario } = await identificarUsuario(supabase);
+  // getUser() permanece NA BORDA, e só aqui.
+  //
+  // `getClaims()` verifica a assinatura e, com chave assimétrica, nem fala com
+  // o Auth. Uma sessão revogada por "sair de todos os lugares" continuaria
+  // válida até o access token expirar, e a inbox devolveria a conversa. Esta
+  // chamada é a que o GoTrue recusa quando a sessão não existe mais. A casca
+  // e as rotas identificam com getClaims, sem repetir a ida. Nunca getSession.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (!usuario) {
+  if (!user) {
     // API routes must respond with JSON envelope (contract: {error:{code,message}})
     // — never redirect HTML to JSON consumers. UI routes redirect to /login as before.
     if (pathname.startsWith("/api/")) {

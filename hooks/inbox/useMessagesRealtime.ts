@@ -4,7 +4,7 @@ import { useCallback, useMemo } from "react";
 import { useRealtimeChannel } from "@/hooks/realtime/useRealtimeChannel";
 import { useRefetchDeSeguranca } from "@/hooks/realtime/useRefetchDeSeguranca";
 import { agendarRecargaDasConversas } from "@/hooks/inbox/recargaDasConversas";
-import { apiClient } from "@/lib/api/client";
+import { buscarPaginaDeMensagens } from "@/hooks/inbox/precarregarConversa";
 import { FRESCURA_DA_TELA_MS } from "@/lib/query/frescura";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import type { Message } from "@/lib/types/messaging";
@@ -27,13 +27,8 @@ export function useMessagesRealtime(conversationId: string | null) {
       if (!conversationId) {
         return { data: [], meta: { has_more: false, cursor: null } } as MessagesResponse;
       }
-      const qs = new URLSearchParams();
-      if (pageParam) qs.set("cursor", pageParam);
-      qs.set("limit", "50");
       try {
-        return await apiClient.get<MessagesResponse>(
-          `/api/v1/conversations/${conversationId}/messages?${qs.toString()}`,
-        );
+        return await buscarPaginaDeMensagens(conversationId, pageParam);
       } catch (err) {
         showApiError(err);
         throw err;

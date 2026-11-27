@@ -26,7 +26,7 @@ itens; cópia congelada ensina a regra de ontem. Abra o `CLAUDE.md`.
 **Multi-tenancy.** Toda tabela tenant-aware leva `organization_id uuid not null` e RLS com policy
 `tenant_isolation_<tabela>_all` via `fn_user_org_ids()`. Service role bypassa RLS — handler que o usa
 filtra `organization_id` **manualmente**, resolvido de fonte confiável (cookie, JWT, segredo de
-webhook, token de path), **nunca do body**. Identificar é `getClaims()` (assinatura do JWT); `getUser()` fica para o registro vivo no Auth server; nunca `getSession()`.
+webhook, token de path), **nunca do body**. Identificar é `getClaims()` (assinatura do JWT); `getUser()` fica na borda (sessão revogada) e para o registro vivo no Auth server; nunca `getSession()`.
 
 **Schema sai em tripla.** Arquivo em `supabase/migrations/`, apêndice **idempotente** no
 `supabase/baseline.sql`, e linha `-- manifest: <o quê e por quê>` no cabeçalho do `.sql` (o `MANIFEST.md` é histórico; não recebe linha nova). O kit self-host aplica **só o baseline** — o que

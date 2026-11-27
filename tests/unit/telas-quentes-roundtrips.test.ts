@@ -7,9 +7,9 @@ import { describe, expect, it, vi } from "vitest";
  * código com atraso injetado, não o RTT de uma VPS. O que ele prende:
  *
  *  1. As duas leituras do funil (cabeçalho e lista) ficam em voo juntas.
- *  2. O desenho novo (1 identificação + permissões em paralelo + dados em
- *     paralelo) cabe em menos tempo que o desenho antigo (três getUser em
- *     série, depois org, depois permissão, depois cada consulta).
+ *  2. O desenho novo (getUser só na borda + permissões em paralelo + dados
+ *     em paralelo) cabe em menos tempo que o desenho antigo (três getUser
+ *     em série, depois org, depois permissão, depois cada consulta).
  *
  * Atraso de 40ms por "ida". Três idas sobrepostas custam ~120ms; sete em
  * série custam ~280ms. A asserção é a razão, não um relógio absoluto — um
