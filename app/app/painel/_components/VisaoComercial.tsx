@@ -419,7 +419,7 @@ export function VisaoComercial() {
                 responsável · {INT.format(r.kpis.abertos - r.kpis.abertos_com_valor)} sem valor. Sem isso, pipeline,
                 previsão e comparativo por vendedor ficam incompletos.
               </span>
-              <Link href="/app/kanban" className="underline underline-offset-2">
+              <Link href={`/app/pipelines/${r.pipeline.id}`} className="underline underline-offset-2">
                 Abrir o funil
               </Link>
             </div>
