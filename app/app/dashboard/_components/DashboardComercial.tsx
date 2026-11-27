@@ -158,7 +158,7 @@ function Cartao({
         <h2 className="text-xs font-semibold uppercase tracking-wide text-text">{titulo}</h2>
         {acao}
       </header>
-      <div className="flex-1 pb-2">{children}</div>
+      <div className="flex flex-1 flex-col pb-2">{children}</div>
       {rodape ? <div className="border-t border-border px-4 py-2.5 text-xs">{rodape}</div> : null}
     </section>
   );
@@ -357,14 +357,14 @@ export function DashboardComercial() {
           </Button>
         </div>
       ) : isLoading || !r ? (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-4">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="ds-esqueleto h-32 rounded-lg" />
           ))}
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-4">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
             <CardKpi
               rotulo="Leads recebidos"
               valor={INT.format(r.kpis.leads)}
@@ -406,7 +406,7 @@ export function DashboardComercial() {
               comparar={comparar}
             />
             <CardKpi
-              rotulo="Faturamento vendido"
+              rotulo="Faturamento"
               valor={reais(r.kpis.faturamento_cents)}
               icone={CurrencyCircleDollar}
               atual={r.kpis.faturamento_cents}
@@ -431,7 +431,7 @@ export function DashboardComercial() {
 
           <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
             <Cartao titulo="Funil comercial">
-              <div className="grid grid-cols-1 gap-4 pb-2 md:grid-cols-[minmax(0,1fr)_11rem] md:pr-4">
+              <div className="grid h-full grid-cols-1 items-center gap-4 pb-2 md:grid-cols-[minmax(0,1fr)_11rem] md:pr-4">
                 <FunilVisual etapas={r.funil} />
                 <div className="mx-4 flex flex-col justify-center gap-4 rounded-lg bg-surface-elevated p-4 md:mx-0">
                   <div>
