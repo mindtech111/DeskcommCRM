@@ -137,8 +137,8 @@ function Funil({ etapas }: { etapas: EtapaDoFunil[] }) {
         <col />
         <col className="w-14" />
         <col className="w-14" />
-        <col className="w-[4.5rem]" />
-        <col className="w-12" />
+        <col className="w-[5.25rem]" />
+        <col className="w-14" />
       </colgroup>
       <thead>
         <tr className="border-y border-border text-left">
@@ -420,14 +420,14 @@ export function VisaoComercial() {
           </Button>
         </div>
       ) : isLoading || !r ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 2xl:grid-cols-8">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-3">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="ds-esqueleto h-[6.25rem] rounded-lg" />
           ))}
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 2xl:grid-cols-8">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-3">
             <Kpi rotulo="Leads" valor={INT.format(r.kpis.leads)} detalhe="entraram no período" />
             <Kpi
               rotulo="Agendamentos"
@@ -444,18 +444,18 @@ export function VisaoComercial() {
               valor={INT.format(r.kpis.vendas)}
               detalhe={
                 r.kpis.vendas - r.kpis.vendas_com_valor > 0
-                  ? `fechadas · ${r.kpis.vendas - r.kpis.vendas_com_valor} sem valor`
+                  ? `${r.kpis.vendas - r.kpis.vendas_com_valor} sem valor`
                   : "fechadas no período"
               }
             />
-            <Kpi rotulo="Faturamento" valor={reais(r.kpis.faturamento_cents)} detalhe="vendido, não recebido" />
+            <Kpi rotulo="Faturamento" valor={reais(r.kpis.faturamento_cents)} detalhe="vendido ≠ recebido" />
             <Kpi rotulo="Ticket médio" valor={ticket == null ? "—" : reais(ticket)} detalhe="vendas com valor" />
             <Kpi
               rotulo="Pipeline aberto"
               valor={reais(r.kpis.pipeline_aberto_cents)}
               detalhe={`${r.kpis.abertos_com_valor} de ${INT.format(r.kpis.abertos)} com valor`}
             />
-            <Kpi rotulo="Previsão" valor={reais(r.kpis.previsao_cents)} detalhe="valor × chance da etapa" />
+            <Kpi rotulo="Previsão" valor={reais(r.kpis.previsao_cents)} detalhe="valor × chance" />
           </div>
 
           {r.kpis.abertos_sem_responsavel > 0 || r.kpis.abertos_com_valor < r.kpis.abertos ? (
