@@ -6,6 +6,7 @@ import { ROLE_RANK, escreveComoPlatformAdmin } from "@/lib/auth/types";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 import { PainelClient } from "./_components/PainelClient";
+import { VisaoComercial } from "./_components/VisaoComercial";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Painel" };
@@ -28,12 +29,17 @@ export default async function PainelPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">{t("Painel")}</h1>
         <p className="text-sm text-muted-foreground">
-          {t(
-            "Metas e realizado, o funil do período e o comparativo de quem vende, junto dos números de leads, conversas e anúncios.",
-          )}
+          {t("Indicadores comerciais, funil, canais e oportunidades, e logo abaixo o atendimento do dia.")}
         </p>
       </header>
-      <PainelClient podeConectar={podeConectar} />
+      <VisaoComercial />
+      <div className="border-t border-border pt-6">
+        <h2 className="mb-1 text-lg font-semibold tracking-tight">{t("Atendimento e equipe")}</h2>
+        <p className="mb-4 text-xs text-muted-foreground">
+          {t("Meta do dia, conversas, primeira resposta e quem vende.")}
+        </p>
+        <PainelClient podeConectar={podeConectar} />
+      </div>
     </div>
   );
 }

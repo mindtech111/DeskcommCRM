@@ -114,7 +114,7 @@ export function branding(): Branding {
  * o `.env` só escolhe qual. Valor desconhecido ou vazio = tema padrão, idêntico
  * ao de antes desta variável existir.
  */
-export const BRAND_THEMES = ["inochi"] as const;
+export const BRAND_THEMES = ["inochi", "inochi-attio"] as const;
 export type BrandTheme = (typeof BRAND_THEMES)[number] | "default";
 
 export function resolveBrandTheme(raw: string | undefined | null): BrandTheme {
@@ -129,7 +129,7 @@ export function brandTheme(): BrandTheme {
 
 
 /** Temas com favicon próprio em `public/brand/<tema>/icon.svg`. */
-const TEMAS_COM_ICONE: readonly BrandTheme[] = ["inochi"];
+const TEMAS_COM_ICONE: readonly BrandTheme[] = ["inochi", "inochi-attio"];
 
 /**
  * Favicon do tema, ou `null` para seguir o do upstream (ícone desenhado em

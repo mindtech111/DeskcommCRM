@@ -21,6 +21,11 @@ const PAINEIS: Record<Exclude<BrandTheme, "default">, { logo: string; titulo: st
     titulo: "Do primeiro contato à jornada do paciente.",
     texto: "A plataforma de atendimento da equipe Inochi.",
   },
+  "inochi-attio": {
+    logo: "/brand/inochi-attio/logo-claro.svg",
+    titulo: "Do primeiro contato à jornada do paciente.",
+    texto: "A plataforma comercial e de atendimento da equipe Inochi.",
+  },
 };
 
 export function PainelDaEntrada({ tema, nome }: { tema: Exclude<BrandTheme, "default">; nome: string }) {

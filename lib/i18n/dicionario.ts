@@ -16347,6 +16347,13 @@ export const DICIONARIO: Traducoes = {
   "O dia da operação, atualizado a cada minuto: metas, funil, quem vende, leads, conversas, consultas, vendas e anúncios.": {
     es: "El día de la operación, actualizado cada minuto: metas, embudo, quién vende, leads, conversaciones, consultas, ventas y anuncios.",
   },
+  "Indicadores comerciais, funil, canais e oportunidades, e logo abaixo o atendimento do dia.": {
+    es: "Indicadores comerciales, embudo, canales y oportunidades, y debajo la atención del día.",
+  },
+  "Atendimento e equipe": { es: "Atención y equipo" },
+  "Meta do dia, conversas, primeira resposta e quem vende.": {
+    es: "Meta del día, conversaciones, primera respuesta y quién vende.",
+  },
   "Metas e realizado, o funil do período e o comparativo de quem vende, junto dos números de leads, conversas e anúncios.": {
     es: "Metas y realizado, el embudo del período y la comparación de quién vende, junto a los números de leads, conversaciones y anuncios.",
   },
