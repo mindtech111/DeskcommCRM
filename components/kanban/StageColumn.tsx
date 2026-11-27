@@ -1,6 +1,8 @@
 "use client";
 import { Droppable } from "@hello-pangea/dnd";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState, type CSSProperties } from "react";
+import { precarregarTimeline } from "@/hooks/leads/useLeadTimeline";
 import { useT } from "@/hooks/i18n/useT";
 import { cn } from "@/lib/utils";
 import type { Lead } from "@/lib/types/leads";
@@ -55,6 +57,7 @@ export function StageColumn({
   onRenomear,
 }: StageColumnProps) {
   const t = useT();
+  const qc = useQueryClient();
   // O TOTAL É POR MOEDA (#1531). Antes ele somava todos os `value_cents` e
   // escrevia o resultado na moeda do primeiro negócio: R$ 5.000 e 5.000 € saíam
   // "R$ 10.000,00", um valor que não existe. Agora cada moeda tem o seu total,
@@ -258,6 +261,7 @@ export function StageColumn({
                 pulseCount={pulses?.get(lead.id) ?? 0}
                 onSelect={aoSelecionar}
                 onOpen={onOpen}
+                aoApontar={() => precarregarTimeline(qc, lead.id)}
               />
             ))}
             {provided.placeholder}

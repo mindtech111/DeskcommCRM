@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -95,12 +96,14 @@ describe("gaveta do arquivo (#979)", () => {
 
   function tela(opts: { arquivados?: FunilDaLista[]; podeGerenciar?: boolean } = {}) {
     return render(
-      <FunisClient
-        funis={[vivo]}
-        arquivados={opts.arquivados ?? [arquivado]}
-        podeGerenciar={opts.podeGerenciar ?? true}
-        podeImportar={false}
-      />,
+      <QueryClientProvider client={new QueryClient()}>
+        <FunisClient
+          funis={[vivo]}
+          arquivados={opts.arquivados ?? [arquivado]}
+          podeGerenciar={opts.podeGerenciar ?? true}
+          podeImportar={false}
+        />
+      </QueryClientProvider>,
     );
   }
 

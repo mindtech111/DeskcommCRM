@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 
+import { renovarJwtDepoisDoPerfil } from "@/lib/auth/renovar-jwt";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { audit } from "@/lib/audit";
 import { ipDoCliente } from "@/lib/http/ip-do-cliente";
@@ -39,6 +40,8 @@ export async function trocarIdioma(
   const supabase = await createClient();
   const { error } = await supabase.auth.updateUser({ data: { locale: idioma } });
   if (error) return { ok: false, error: error.message };
+  const jwtVelho = await renovarJwtDepoisDoPerfil(supabase);
+  if (jwtVelho) return { ok: false, error: jwtVelho };
 
   const hdrs = await headers();
   const activeOrg = await resolveActiveOrg(authUser);

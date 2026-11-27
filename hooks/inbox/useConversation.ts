@@ -2,6 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/types";
+import { FRESCURA_DA_TELA_MS } from "@/lib/query/frescura";
 import type { ConversationWithContact } from "./useConversationsRealtime";
 
 /**
@@ -15,6 +16,7 @@ export function useConversation(id: string | null, enabled: boolean) {
     queryKey: ["conversation", id],
     enabled: enabled && !!id,
     retry: false,
+    staleTime: FRESCURA_DA_TELA_MS,
     queryFn: () =>
       apiClient
         .get<{ data: ConversationWithContact }>(`/api/v1/conversations/${id}`)

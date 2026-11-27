@@ -9,6 +9,7 @@ import { combinarInterfaces } from "@/lib/navigation/interface";
  * and then filter by `user_id` (a trusted source).
  */
 import { readSupportContext } from "@/lib/impersonate/support";
+import { identificarUsuario } from "@/lib/auth/identificar-usuario";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { logger } from "@/lib/logger";
@@ -110,9 +111,11 @@ function escolherMembroAtivo(
 /**
  * "Não havia sessão nenhuma" — o estado NORMAL, não um incidente.
  *
- * `getUser()` não devolve `error: null` para quem não está logado. Sem cookie de
- * sessão, `GoTrueClient._getUser` corta antes de falar com o GoTrue e devolve
- * `{ data: { user: null }, error: new AuthSessionMissingError() }` (status 400).
+ * `getClaims()` / `getUser()` não devolvem `error: null` para quem não está
+ * logado. Sem cookie de sessão, o cliente corta antes de falar com o GoTrue e
+ * devolve `{ data: { user: null }, error: new AuthSessionMissingError() }`
+ * (status 400). `getClaims()` chega no mesmo erro pelo `getSession()` interno,
+ * antes de verificar o JWT.
  * Medido em `@supabase/auth-js` 2.112.1, com um cookie store vazio:
  *
  *     user  = null
@@ -136,10 +139,12 @@ export function ehSessaoAusente(error: { name?: string } | null | undefined): bo
 
 export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
   const supabase = await createClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+  // Identificar, não confirmar o registro no Auth server. `getClaims` valida a
+  // assinatura (local com chave assimétrica). `getUser` fica para MFA, senha,
+  // sair de todas as sessões e o id de sessão do acompanhamento — ver
+  // `authenticatedSessionId`. O `via` entra no log para o dublê sem `getClaims`
+  // continuar dizendo "getUser falhou", que é o que a suíte procura.
+  const { usuario: user, error, via } = await identificarUsuario(supabase);
   // ⚠️ O `error` era DESCARTADO — nem chegava a ser desestruturado —, e aqui
   // `user: null` é tão ambíguo quanto o `data: null` que a query logo abaixo
   // trata com todo o cuidado: significa "não está logado" (estado normal) E
@@ -170,7 +175,7 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
     // (rede, GoTrue fora do ar) de `AuthApiError` (token ilegível). Ambas podem
     // chegar com o mesmo `status`, e a mensagem vem em inglês do upstream — sem o
     // nome, distinguir as duas viraria regex sobre texto que muda entre versões.
-    logger.error("[auth] getUser falhou — tratando como não autenticado", {
+    logger.error(`[auth] ${via} falhou — tratando como não autenticado`, {
       name: error.name,
       code: error.code ?? null,
       status: error.status ?? null,
@@ -184,31 +189,57 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
   // ⚠️ `ORDER BY` NÃO É ENFEITE AQUI: esta lista decide QUAL ORGANIZAÇÃO FICA
   // ATIVA para quem não tem o cookie `active_org` — `resolveActiveOrg` pega
   // `organizations[0]`. Sem ordenação, "a primeira" é o que o Postgres devolver.
-  const [{ data: paRow, error: paErro }, { data: rawMemberships, error: membErro }] =
-    await Promise.all([
-      supabase
-        .from("platform_admins")
-        .select("user_id, scope, revoked_at")
-        .eq("user_id", user.id)
-        .is("revoked_at", null)
-        .maybeSingle(),
-      supabase
-        .from("user_organizations")
-        .select(
-          // Dois embeds do MESMO `organizations`, como manda o PostgREST quando a
-          // mesma relação aparece duas vezes: `organizations(...)` continua sendo
-          // o que a membership sempre trouxe (nome, IDIOMA e FUSO da empresa — o
-          // idioma decide a tela inteira e não pode depender de um embed que a
-          // issue #1341 acabou de engordar), e o alias traz só as portas da EMPRESA.
-          // `timezone` veio do main (fuso da organização nas listas, #1290) e convive
-          // com o alias: um embed por relação, sem renomear o que já existia.
-          "organization_id, role, interface_settings, accepted_at, organizations(display_name, locale, timezone, currency, country, status, suspended_kind), interface_da_empresa:organizations(interface_settings)",
+  // As três leituras não dependem uma da outra. O acompanhamento que falha
+  // continua estourando — mas DEPOIS do erro de permissão, que é a mensagem
+  // que a suíte e o operador precisam ver quando o PostgREST cai.
+  const [admins, consultaDeMembros, suporte, perfilVivo] = await Promise.all([
+    supabase
+      .from("platform_admins")
+      .select("user_id, scope, revoked_at")
+      .eq("user_id", user.id)
+      .is("revoked_at", null)
+      .maybeSingle(),
+    supabase
+      .from("user_organizations")
+      .select(
+        // Dois embeds do MESMO `organizations`, como manda o PostgREST quando a
+        // mesma relação aparece duas vezes: `organizations(...)` continua sendo
+        // o que a membership sempre trouxe (nome, IDIOMA e FUSO da empresa — o
+        // idioma decide a tela inteira e não pode depender de um embed que a
+        // issue #1341 acabou de engordar), e o alias traz só as portas da EMPRESA.
+        // `timezone` veio do main (fuso da organização nas listas, #1290) e convive
+        // com o alias: um embed por relação, sem renomear o que já existia.
+        "organization_id, role, interface_settings, accepted_at, organizations(display_name, locale, timezone, currency, country, status, suspended_kind), interface_da_empresa:organizations(interface_settings)",
+      )
+      .eq("user_id", user.id)
+      .is("revoked_at", null)
+      .order("accepted_at", { ascending: true, nullsFirst: true })
+      .order("organization_id", { ascending: true }),
+    readSupportContext(supabase).then(
+      (valor) => ({ ok: true as const, valor }),
+      (erro: unknown) => ({ ok: false as const, erro }),
+    ),
+    // O JWT não acompanha um `user_metadata` gravado por fora (admin.updateUserById,
+    // e o próprio updateUser até a sessão renovar). getClaims lê o token; o
+    // idioma da tela e o formulário de perfil precisam do registro vivo. A
+    // leitura vai JUNTO com as memberships — não é uma espera a mais na frente.
+    // Se o Auth não responder, fica o que o token já tinha: a borda já recusou
+    // sessão revogada, e derrubar a casca aqui seria um redirect no escuro.
+    via === "getClaims"
+      ? supabase.auth.getUser().then(
+          (r) => {
+            if (r.error || !r.data.user) return null;
+            const meta = r.data.user.user_metadata;
+            return meta && typeof meta === "object" && !Array.isArray(meta)
+              ? (meta as Record<string, unknown>)
+              : {};
+          },
+          () => null,
         )
-        .eq("user_id", user.id)
-        .is("revoked_at", null)
-        .order("accepted_at", { ascending: true, nullsFirst: true })
-        .order("organization_id", { ascending: true }),
-    ]);
+      : Promise.resolve(null),
+  ]);
+  const { data: paRow, error: paErro } = admins;
+  const { data: rawMemberships, error: membErro } = consultaDeMembros;
 
   /**
    * FALHA ALTO, não baixo.
@@ -265,10 +296,13 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
     };
   });
 
-  const support = await readSupportContext(supabase);
-  const fullName = (user.user_metadata?.full_name as string | undefined) ?? null;
-  const avatarUrl = (user.user_metadata?.avatar_url as string | undefined) ?? null;
-  const locale = (user.user_metadata?.locale as string | undefined) ?? null;
+  if (!suporte.ok) throw suporte.erro;
+  const support = suporte.valor;
+  // Registro vivo quando o Auth respondeu; senão o que já estava no JWT.
+  const meta = perfilVivo ?? user.user_metadata;
+  const fullName = (meta.full_name as string | undefined) ?? null;
+  const avatarUrl = (meta.avatar_url as string | undefined) ?? null;
+  const locale = (meta.locale as string | undefined) ?? null;
   // A cadeia inteira num lugar só: pessoa → organização ativa → padrão. Quem
   // consome pede `idioma` e não precisa saber que existe uma ordem.
   //
@@ -279,7 +313,7 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
   const idioma = normalizarIdioma(
     locale ?? support?.locale ?? (await localeDaOrgAtiva(memberships)),
   );
-  const timezone = (user.user_metadata?.timezone as string | undefined) ?? null;
+  const timezone = (meta.timezone as string | undefined) ?? null;
 
   return {
     id: user.id,
@@ -416,16 +450,26 @@ export const exigenciaDeMfa = cache(
   ): Promise<ExigenciaDeMfa> => {
     const admin = createAdminClient();
 
-    let plataformaExige: boolean | null = null;
-    if (isPlatformAdmin && userId) {
-      const { data } = await admin
-        .from("platform_admins")
-        .select("mfa_required")
-        .eq("user_id", userId)
-        .is("revoked_at", null)
-        .maybeSingle();
-      plataformaExige = (data?.mfa_required as boolean | undefined) ?? null;
-    }
+    // Plataforma e empresa não se leem: eram duas esperas em fila em TODA
+    // página de /app, porque o layout pergunta a política antes de pintar.
+    const [linhaPlataforma, linhaEmpresa] = await Promise.all([
+      isPlatformAdmin && userId
+        ? admin
+            .from("platform_admins")
+            .select("mfa_required")
+            .eq("user_id", userId)
+            .is("revoked_at", null)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      orgId
+        ? admin.from("organizations").select("settings").eq("id", orgId).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+
+    const plataformaExige: boolean | null =
+      isPlatformAdmin && userId
+        ? ((linhaPlataforma.data?.mfa_required as boolean | undefined) ?? null)
+        : null;
 
     let empresaExige = false;
     let papelMinimo: PapelMinimoDeMfa | null = null;
@@ -433,11 +477,7 @@ export const exigenciaDeMfa = cache(
     let mudouEm: Date | null = null;
     let aceitoEm: string | null = null;
     if (orgId) {
-      const { data } = await admin
-        .from("organizations")
-        .select("settings")
-        .eq("id", orgId)
-        .maybeSingle();
+      const data = linhaEmpresa.data;
       empresaExige = empresaExigeMfa(data?.settings);
       const cfg = politicaDaEmpresa(data?.settings);
       papelMinimo = cfg.papelMinimo;

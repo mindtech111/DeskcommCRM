@@ -75,7 +75,7 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
 - `X-Request-Id` em toda response (correlaciona com audit log)
 
 ### Auth & RBAC
-- Sempre `getUser()` (valida JWT no backend). NUNCA `getSession()` (confia no cookie local)
+- Identificar o usuário no servidor: `getClaims()` (assinatura do JWT; local com chave assimétrica e JWKS em cache no processo). `getUser()` fica na borda (`proxy.ts`) para recusar sessão revogada, e onde o registro vivo do Auth server é a pergunta (MFA, senha, sair de todas as sessões, id de sessão de acompanhamento). NUNCA `getSession()` (confia no cookie local)
 - 4 roles dentro do tenant: `viewer` (1) < `agent` (2) < `manager` (3) < `admin` (4)
 - Super-admin de plataforma é uma role transversal — `is_platform_admin` (decisão final na Spec 01)
 - MFA TOTP é **opcional e ligado por quem administra** — não é mais forçado por papel. Quem exige são duas políticas independentes que SOMAM: `platform_admins.mfa_required` (para o super-admin) e `organizations.settings.security.mfa_required` (com `mfa_required_min_role` escolhendo o nível mínimo — `admin` quando só o booleano legado existe — e `mfa_grace_days` de carência). O padrão de ambas é **não exigir**, e o `bootstrap-owner.ts` grava `false` explícito. Regra pura em `lib/auth/politica-mfa.ts`

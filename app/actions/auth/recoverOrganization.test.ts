@@ -58,9 +58,17 @@ vi.mock("@/lib/audit", async (orig) => ({
 const USUARIO = { id: "11111111-1111-4111-8111-111111111111", email: "dono@exemplo.com.br" };
 
 const atualizarConta = vi.fn(async (_: unknown) => ({ error: null }));
+// updateUser grava o metadata e deixa o access token velho. A action renova
+// a sessão em seguida; sem este dublê o caminho cai no catch e vira
+// provision_failed em vez do redirect que a tela faz.
+const renovarSessao = vi.fn(async () => ({ error: null }));
 function comUsuario(user_metadata: Record<string, unknown> = {}) {
   vi.mocked(createClient).mockResolvedValue({
-    auth: { getUser: vi.fn(async () => ({ data: { user: { ...USUARIO, user_metadata } } })), updateUser: atualizarConta },
+    auth: {
+      getUser: vi.fn(async () => ({ data: { user: { ...USUARIO, user_metadata } } })),
+      updateUser: atualizarConta,
+      refreshSession: renovarSessao,
+    },
   } as never);
 }
 const PLANO = "33333333-3333-4333-8333-333333333333";
@@ -322,6 +330,7 @@ describe("recoverOrganization — instalação com aprovação", () => {
 
     await expect(recoverOrganization("Clínica Boa Vista", PLANO)).rejects.toThrow("NEXT_REDIRECT:/get-started");
     expect(atualizarConta).toHaveBeenCalledWith({ data: { cobranca_plan_id: PLANO } });
+    expect(renovarSessao).toHaveBeenCalled();
     expect(createRegistrationRequest).toHaveBeenCalled();
   });
 

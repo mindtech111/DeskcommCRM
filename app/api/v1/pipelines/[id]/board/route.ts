@@ -480,14 +480,11 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
   const { id: pipelineId } = await ctx.params;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-    error: authErr,
-  } = await supabase.auth.getUser();
-  if (authErr || !user) {
+  // Sem getUser() aqui: loadAuthUser já identificou (getClaims).
+  const authUser = await loadAuthUser();
+  if (!authUser) {
     return fail("unauthenticated", "Auth required.", 401, { requestId });
   }
-  const authUser = await loadAuthUser();
   const t = (texto: string) => traduzir(texto, authUser?.idioma ?? "pt-BR");
 
   const [
@@ -519,10 +516,16 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
   // 8, decisão 2 — critério 4): o card não é listado e volta ao desmarcar, com
   // o histórico intacto. Filtro em memória sobre a lista já lida: o board não
   // pagina, então nada se perde por filtrar depois de ler. NUNCA `delete`.
-  const pessoais = await idsDeContatosPessoais(
-    supabase,
-    (pipeline as Pipeline).organization_id,
-  );
+  // O funil padrão não depende de quem é pessoal nem do dono do card.
+  const [pessoais, pipelinePadraoRes] = await Promise.all([
+    idsDeContatosPessoais(supabase, (pipeline as Pipeline).organization_id),
+    supabase
+      .from("crm_pipelines")
+      .select("id")
+      .eq("organization_id", (pipeline as Pipeline).organization_id)
+      .eq("is_default", true)
+      .maybeSingle(),
+  ]);
   const leadsVisiveis =
     pessoais.length > 0
       ? ((leads ?? []) as Lead[]).filter(
@@ -539,12 +542,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
     return fail("internal_error", leadsWithOwner.error, 500, { requestId });
   }
 
-  const { data: pipelinePadrao } = await supabase
-    .from("crm_pipelines")
-    .select("id")
-    .eq("organization_id", (pipeline as Pipeline).organization_id)
-    .eq("is_default", true)
-    .maybeSingle();
+  const pipelinePadrao = pipelinePadraoRes.data;
 
   const leadsComAcao = await withNextActions(
     supabase,

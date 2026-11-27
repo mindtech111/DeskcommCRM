@@ -1,9 +1,11 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useActiveOrg } from "@/hooks/auth/AuthProvider";
 import { useT } from "@/hooks/i18n/useT";
+import { precarregarQuadro } from "@/hooks/kanban/useBoard";
 
 import { ImportarLeads } from "./_components/ImportarLeads";
 import { EmptyPipeline } from "@/components/empty";
@@ -104,6 +106,7 @@ export function FunisClient({
   podeImportar: boolean;
 }) {
   const t = useT();
+  const qc = useQueryClient();
   /**
    * O funil de clientes só tem efeito com a regra "Clientes pela agenda" ligada
    * (migration 0262): desligada, o roteamento ignora a marca. Botão e selo
@@ -548,6 +551,8 @@ export function FunisClient({
                       href={`/app/pipelines/${funil.id}`}
                       className="group flex flex-col"
                       data-testid={`abrir-${funil.id}`}
+                      onPointerEnter={() => precarregarQuadro(qc, funil.id)}
+                      onFocus={() => precarregarQuadro(qc, funil.id)}
                     >
                       <span className="flex items-center gap-2">
                         <span className="text-sm font-medium group-hover:underline">{funil.name}</span>

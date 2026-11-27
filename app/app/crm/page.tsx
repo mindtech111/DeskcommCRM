@@ -35,25 +35,29 @@ export default async function CrmHubPage() {
   let extensionGuides: ExtensionGuideView[] = [];
   let extensionsUnavailable = false;
 
-  if (activeOrg) {
-    try {
-      extensionGuides = await loadCrmExtensions(activeOrg.orgId);
-    } catch (error) {
-      // O hub continua útil sem extensões, mas a falha precisa ser distinguível
-      // de uma lista legitimamente vazia. A gestão oferece a reconciliação — e o
-      // log diz que o hub degradou, para a falha não existir só na tela.
-      const code = (error as { code?: unknown } | null)?.code;
-      logger.warn("[crm] hub aberto sem as orientações das extensões", {
-        organization_id: activeOrg.orgId,
-        error_code: typeof code === "string" ? code : null,
-      });
-      extensionsUnavailable = true;
-    }
-  }
-
-  const capacidadesLigadas = activeOrg
-    ? await capacidadesDaOrganizacao(createAdminClient(), activeOrg.orgId)
-    : [];
+  // Extensões, capacidades e módulos não se leem. A falha das extensões
+  // continua degradando só aquele bloco — as outras duas leituras seguem.
+  const [extensoes, capacidadesLigadas, modulos] = await Promise.all([
+    activeOrg
+      ? loadCrmExtensions(activeOrg.orgId).then(
+          (guias) => ({ guias, indisponivel: false }),
+          (error: unknown) => {
+            const code = (error as { code?: unknown } | null)?.code;
+            logger.warn("[crm] hub aberto sem as orientações das extensões", {
+              organization_id: activeOrg.orgId,
+              error_code: typeof code === "string" ? code : null,
+            });
+            return { guias: [] as ExtensionGuideView[], indisponivel: true };
+          },
+        )
+      : Promise.resolve({ guias: [] as ExtensionGuideView[], indisponivel: false }),
+    activeOrg
+      ? capacidadesDaOrganizacao(createAdminClient(), activeOrg.orgId)
+      : Promise.resolve([]),
+    modulosLigados(createAdminClient()),
+  ]);
+  extensionGuides = extensoes.guias;
+  extensionsUnavailable = extensoes.indisponivel;
 
   return (
     <NavHub
@@ -62,7 +66,7 @@ export default async function CrmHubPage() {
       isPlatformAdmin={user.is_platform_admin && !user.support}
       role={activeOrg?.role ?? null}
       interfaceSettings={activeOrg?.interface_settings}
-      modulosLigados={await modulosLigados(createAdminClient())}
+      modulosLigados={modulos}
       title={traduzir("CRM", idioma)}
       subtitle={traduzir(
         "Onde a venda acontece — e o que você define uma vez para ela funcionar.",

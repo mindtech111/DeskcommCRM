@@ -92,7 +92,13 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  // Validate JWT server-side (NEVER use getSession on backend per CLAUDE.md).
+  // getUser() permanece NA BORDA, e só aqui.
+  //
+  // `getClaims()` verifica a assinatura e, com chave assimétrica, nem fala com
+  // o Auth. Uma sessão revogada por "sair de todos os lugares" continuaria
+  // válida até o access token expirar, e a inbox devolveria a conversa. Esta
+  // chamada é a que o GoTrue recusa quando a sessão não existe mais. A casca
+  // e as rotas identificam com getClaims, sem repetir a ida. Nunca getSession.
   const {
     data: { user },
   } = await supabase.auth.getUser();

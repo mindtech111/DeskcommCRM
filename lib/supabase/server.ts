@@ -1,8 +1,10 @@
 /**
  * Supabase client para Server Components, Route Handlers e Server Actions.
  *
- * Lê/escreve cookies via next/headers. Sempre use `getUser()` (valida JWT no
- * backend), NUNCA `getSession()` (confia no cookie local sem revalidar).
+ * Lê/escreve cookies via next/headers. Para identificar o usuário, use
+ * `identificarUsuario()` (`getClaims`: assinatura do JWT, local quando a chave
+ * é assimétrica). `getUser()` fica onde o registro vivo do Auth server é a
+ * pergunta. NUNCA `getSession()` (confia no cookie local sem revalidar).
  */
 
 import { createServerClient, type CookieOptions } from "@supabase/ssr";

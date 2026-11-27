@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/table";
 import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 import { useT } from "@/hooks/i18n/useT";
-import { usePainel, type RespostaDoPainel } from "@/hooks/metrics/usePainel";
+import { precarregarPainel, usePainel, type RespostaDoPainel } from "@/hooks/metrics/usePainel";
 import { apiClient } from "@/lib/api/client";
 import type { Delta, RetratoDoPainel } from "@/lib/metrics/painel";
 import type { CorpoDasMetas } from "@/lib/metrics/painel-metas";
@@ -203,6 +203,8 @@ export function PainelClient({ podeConectar }: { podeConectar: boolean }) {
             variant={periodo === "hoje" ? "default" : "secondary"}
             aria-pressed={periodo === "hoje"}
             onClick={() => setPeriodo("hoje")}
+            onPointerEnter={() => precarregarPainel(queryClient, "hoje")}
+            onFocus={() => precarregarPainel(queryClient, "hoje")}
           >
             {t("Hoje")}
           </Button>
@@ -211,6 +213,8 @@ export function PainelClient({ podeConectar }: { podeConectar: boolean }) {
             variant={periodo === "7d" ? "default" : "secondary"}
             aria-pressed={periodo === "7d"}
             onClick={() => setPeriodo("7d")}
+            onPointerEnter={() => precarregarPainel(queryClient, "7d")}
+            onFocus={() => precarregarPainel(queryClient, "7d")}
           >
             {t("7 dias")}
           </Button>
@@ -219,6 +223,8 @@ export function PainelClient({ podeConectar }: { podeConectar: boolean }) {
             variant={periodo === "30d" ? "default" : "secondary"}
             aria-pressed={periodo === "30d"}
             onClick={() => setPeriodo("30d")}
+            onPointerEnter={() => precarregarPainel(queryClient, "30d")}
+            onFocus={() => precarregarPainel(queryClient, "30d")}
           >
             {t("30 dias")}
           </Button>

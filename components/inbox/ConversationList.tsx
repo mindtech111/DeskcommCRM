@@ -1,5 +1,6 @@
 "use client";
 import { ehAFila } from "@/lib/inbox/comando-da-conversa";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { useT } from "@/hooks/i18n/useT";
 import type { InfiniteData, UseInfiniteQueryResult } from "@tanstack/react-query";
@@ -11,6 +12,7 @@ import { useChannelSessions } from "@/hooks/channels/useChannelSessions";
 import { useAutomaticoAtivo } from "@/hooks/ai/useAutomaticoAtivo";
 
 import { ConversationListItem } from "./ConversationListItem";
+import { precarregarConversa } from "@/hooks/inbox/precarregarConversa";
 import { EmptyInbox } from "@/components/empty";
 import { EmptyPorFiltro } from "./EmptyPorFiltro";
 import { filtrosAuxiliaresAtivos } from "@/lib/inbox/filtros-ativos";
@@ -56,6 +58,7 @@ export function ConversationList({
   onSelecionarTodosVisiveis,
 }: Props) {
   const t = useT();
+  const qc = useQueryClient();
   // Só mostra POR ONDE a conversa entrou quando há mais de um número. Com um
   // só, o rótulo seria a mesma palavra em toda linha — ruído que ensina o olho
   // a ignorar a área onde vivem os avisos que importam.
@@ -237,6 +240,7 @@ export function ConversationList({
             conversation={c}
             isSelected={c.id === selectedId}
             onSelect={onSelect}
+            aoApontar={(id) => precarregarConversa(qc, id)}
             queuePosition={isQueue ? i + 1 : undefined}
             mostrarCanal={maisDeUmCanal}
             mostrarAtendente={mostrarAtendente}

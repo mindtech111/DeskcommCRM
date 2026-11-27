@@ -11,6 +11,7 @@ import {
   SEM_PREFERENCIA_DE_IDIOMA,
   type ProfileInput,
 } from "@/lib/schemas/settings";
+import { renovarJwtDepoisDoPerfil } from "@/lib/auth/renovar-jwt";
 import { resolveActiveOrg, loadAuthUser } from "@/lib/auth/server";
 
 export type UpdateProfileResult =
@@ -45,6 +46,8 @@ export async function updateProfile(input: ProfileInput): Promise<UpdateProfileR
   if (error) {
     return { ok: false, error: error.message };
   }
+  const jwtVelho = await renovarJwtDepoisDoPerfil(supabase);
+  if (jwtVelho) return { ok: false, error: jwtVelho };
 
   const activeOrg = await resolveActiveOrg(authUser);
 

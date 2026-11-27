@@ -1,6 +1,7 @@
 "use client";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useRef, useState } from "react";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { FRESCURA_DA_TELA_MS } from "@/lib/query/frescura";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { apiClient } from "@/lib/api/client";
 import { useRealtimeChannel } from "@/hooks/realtime/useRealtimeChannel";
@@ -53,6 +54,15 @@ async function fetchTimeline(leadId: string): Promise<TimelineItemView[]> {
   return res as unknown as TimelineItemView[];
 }
 
+/** Ao apontar o card, o dossiê abre com a timeline já pedida. */
+export function precarregarTimeline(qc: QueryClient, leadId: string) {
+  void qc.prefetchQuery({
+    queryKey: ["timeline", leadId],
+    queryFn: () => fetchTimeline(leadId),
+    staleTime: FRESCURA_DA_TELA_MS,
+  });
+}
+
 /** O id da atividade dentro do payload do postgres_changes. */
 function idDoEvento(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
@@ -65,7 +75,7 @@ export function useLeadTimeline(
   contactId: string | null,
 ): TimelineAoVivo {
   const qc = useQueryClient();
-  const queryKey = ["timeline", leadId] as const;
+  const queryKey = useMemo(() => ["timeline", leadId] as const, [leadId]);
   const [chegouAoVivo, setChegouAoVivo] = useState<Set<string>>(new Set());
   // `useRef` para o Set não virar dependência do callback e o canal não
   // re-assinar a cada evento — re-assinar perderia eventos na janela.
@@ -75,6 +85,7 @@ export function useLeadTimeline(
     queryKey,
     queryFn: () => fetchTimeline(leadId as string),
     enabled: !!leadId,
+    staleTime: FRESCURA_DA_TELA_MS,
   });
 
   const onChange = useCallback(

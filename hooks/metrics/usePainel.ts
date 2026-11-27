@@ -1,8 +1,9 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "@/lib/api/client";
+import { FRESCURA_DA_TELA_MS } from "@/lib/query/frescura";
 import type { FunilDoPainel, PessoaDaEquipe } from "@/lib/metrics/painel-comercial";
 import type { BlocoDeMetas } from "@/lib/metrics/painel-metas";
 import type { ComparacaoDoRetrato, RetratoDoPainel } from "@/lib/metrics/painel";
@@ -29,14 +30,37 @@ export interface RespostaDoPainel {
   metas: BlocoDeMetas;
 }
 
-/** Retrato do dia, refeito a cada minuto. A janela mora na rota. */
+export function chaveDoPainel(periodo: PeriodoPainel) {
+  return ["metrics", "painel", periodo] as const;
+}
+
+function consultaDoPainel(periodo: PeriodoPainel) {
+  return apiClient.get<{ data: RespostaDoPainel }>(`/api/v1/metrics/painel?periodo=${periodo}`, {
+    timeoutMs: 20_000,
+  });
+}
+
+/** Ao apontar Hoje / 7 dias / 30 dias, a troca não espera a rede. */
+export function precarregarPainel(qc: QueryClient, periodo: PeriodoPainel) {
+  void qc.prefetchQuery({
+    queryKey: chaveDoPainel(periodo),
+    queryFn: () => consultaDoPainel(periodo),
+    staleTime: FRESCURA_DA_TELA_MS,
+  });
+}
+
+/**
+ * Retrato do dia, refeito a cada minuto. A janela mora na rota.
+ *
+ * `staleTime` e `refetchInterval` não competem: o intervalo busca de novo
+ * mesmo com o dado fresco (ver `lib/query/frescura.ts`). A frescura só evita
+ * outra leitura ao sair e voltar para o painel dentro de um minuto.
+ */
 export function usePainel(periodo: PeriodoPainel) {
   return useQuery({
-    queryKey: ["metrics", "painel", periodo],
-    queryFn: () =>
-      apiClient.get<{ data: RespostaDoPainel }>(`/api/v1/metrics/painel?periodo=${periodo}`, {
-        timeoutMs: 20_000,
-      }),
+    queryKey: chaveDoPainel(periodo),
+    queryFn: () => consultaDoPainel(periodo),
+    staleTime: FRESCURA_DA_TELA_MS,
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });

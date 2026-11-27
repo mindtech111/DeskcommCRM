@@ -1,5 +1,6 @@
 "use client";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { FRESCURA_DA_TELA_MS } from "@/lib/query/frescura";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ehEcoLocal } from "@/lib/kanban/local-echo";
 import { useRealtimeChannel } from "@/hooks/realtime/useRealtimeChannel";
@@ -60,6 +61,15 @@ export function chaveDoQuadro(pipelineId: string | null) {
   return ["board", pipelineId] as const;
 }
 
+/** Ao apontar um funil na lista, o quadro já está no cache quando o clique chega. */
+export function precarregarQuadro(qc: QueryClient, pipelineId: string) {
+  void qc.prefetchQuery({
+    queryKey: chaveDoQuadro(pipelineId),
+    queryFn: () => fetchBoard(pipelineId),
+    staleTime: FRESCURA_DA_TELA_MS,
+  });
+}
+
 export function useBoard(pipelineId: string | null) {
   const qc = useQueryClient();
   const queryKey = chaveDoQuadro(pipelineId);
@@ -79,6 +89,7 @@ export function useBoard(pipelineId: string | null) {
     queryKey,
     queryFn: () => fetchBoard(pipelineId as string),
     enabled: !!pipelineId,
+    staleTime: FRESCURA_DA_TELA_MS,
   });
 
   const onChange = useCallback(

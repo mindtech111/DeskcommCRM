@@ -98,9 +98,13 @@ describe("os elos que somem sem barulho", () => {
     // Buscá-lo numa consulta própria faria a tela aparecer em português e
     // trocar meio segundo depois, em toda navegação — pior que não traduzir.
     expect(readFileSync("lib/auth/types.ts", "utf8")).toMatch(/locale\?: string \| null/);
-    expect(readFileSync("lib/auth/server.ts", "utf8")).toMatch(
-      /user\.user_metadata\?\.locale as string \| undefined/,
-    );
+    // O token não acompanha um locale gravado por fora (`admin.updateUserById`,
+    // o que o e2e faz antes do reload). A preferência viva entra em `meta`;
+    // sem o Auth, continua o `user_metadata` do JWT. As duas fontes são a
+    // conta da pessoa — não uma consulta que pintaria a tela e trocaria depois.
+    const servidor = readFileSync("lib/auth/server.ts", "utf8");
+    expect(servidor).toMatch(/const meta = perfilVivo \?\? user\.user_metadata/);
+    expect(servidor).toMatch(/\(meta\.locale as string \| undefined\)/);
     // E a CADEIA: preferência da pessoa → idioma da ORGANIZAÇÃO → padrão.
     //
     // O elo do meio é o que costuma sumir: `organizations.locale` tinha
@@ -108,7 +112,6 @@ describe("os elos que somem sem barulho", () => {
     // medido por varredura, as únicas referências eram a escrita e a releitura
     // para preencher o próprio formulário. Sem este caso, ele volta a ser
     // decorativo no dia em que alguém "simplificar" o resolvedor.
-    const servidor = readFileSync("lib/auth/server.ts", "utf8");
     // ⚠️ ESTA CERCA FOI AFROUXADA EM 2026-09-20, e o que ela perdeu está escrito
     // aqui para o próximo não afrouxar mais um degrau sem saber o que sobra.
     //
