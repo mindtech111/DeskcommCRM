@@ -167,6 +167,19 @@ export const NAV_CATALOG = [
   },
   // ---- Atendimento — onde o operador passa o dia ----
   {
+    // Fork Mindtech: primeira porta do menu para quem gerencia a venda (pedido
+    // da gestão comercial da Inochi). Para caber no limite medido do menu
+    // (tests/e2e/navegacao.spec.ts, 900px sem scroll), o Painel saiu do
+    // sidebar e segue no hub de Análise e no ⌘K.
+    href: "/app/dashboard",
+    label: "Dashboard",
+    description: "Visão geral do desempenho comercial: leads, funil, canais, campanhas e oportunidades.",
+    icon: "Gauge",
+    group: "atendimento",
+    minRole: "manager",
+    sidebar: true,
+  },
+  {
     href: "/app/inbox",
     label: "Inbox",
     description: "As conversas de WhatsApp, com você e a IA atendendo lado a lado.",
@@ -827,7 +840,7 @@ export const NAV_CATALOG = [
     group: "analise",
     section: "Os números do período",
     minRole: "manager",
-    sidebar: true,
+    // Fora do sidebar desde o Dashboard (ver a entrada /app/dashboard).
   },
   {
     // Ao lado do Painel e de Desempenho: responde a metade da MESMA pergunta.

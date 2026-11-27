@@ -16350,6 +16350,9 @@ export const DICIONARIO: Traducoes = {
   "Indicadores comerciais, funil, canais e oportunidades, e logo abaixo o atendimento do dia.": {
     es: "Indicadores comerciales, embudo, canales y oportunidades, y debajo la atención del día.",
   },
+  "Visão geral do desempenho comercial: leads, funil, canais, campanhas e oportunidades.": {
+    es: "Visión general del desempeño comercial: leads, embudo, canales, campañas y oportunidades.",
+  },
   "Atendimento e equipe": { es: "Atención y equipo" },
   "Mostrar atendimento e equipe": { es: "Mostrar atención y equipo" },
   "Meta do dia, conversas, primeira resposta e quem vende.": {

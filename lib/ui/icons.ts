@@ -153,4 +153,12 @@ export {
   ArrowsOutSimple,
   // /admin/modulos: módulo opcional com tabela própria (ADR-0002)
   Stack,
+  // dashboard comercial (fork Mindtech)
+  UserCheck,
+  ShoppingBag,
+  CurrencyCircleDollar,
+  ArrowUp,
+  ArrowDown,
+  Timer,
+  Target,
 } from "@phosphor-icons/react/dist/ssr";
