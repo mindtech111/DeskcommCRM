@@ -192,7 +192,7 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
   // As três leituras não dependem uma da outra. O acompanhamento que falha
   // continua estourando — mas DEPOIS do erro de permissão, que é a mensagem
   // que a suíte e o operador precisam ver quando o PostgREST cai.
-  const [admins, consultaDeMembros, suporte] = await Promise.all([
+  const [admins, consultaDeMembros, suporte, perfilVivo] = await Promise.all([
     supabase
       .from("platform_admins")
       .select("user_id, scope, revoked_at")
@@ -219,6 +219,24 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
       (valor) => ({ ok: true as const, valor }),
       (erro: unknown) => ({ ok: false as const, erro }),
     ),
+    // O JWT não acompanha um `user_metadata` gravado por fora (admin.updateUserById,
+    // e o próprio updateUser até a sessão renovar). getClaims lê o token; o
+    // idioma da tela e o formulário de perfil precisam do registro vivo. A
+    // leitura vai JUNTO com as memberships — não é uma espera a mais na frente.
+    // Se o Auth não responder, fica o que o token já tinha: a borda já recusou
+    // sessão revogada, e derrubar a casca aqui seria um redirect no escuro.
+    via === "getClaims"
+      ? supabase.auth.getUser().then(
+          (r) => {
+            if (r.error || !r.data.user) return null;
+            const meta = r.data.user.user_metadata;
+            return meta && typeof meta === "object" && !Array.isArray(meta)
+              ? (meta as Record<string, unknown>)
+              : {};
+          },
+          () => null,
+        )
+      : Promise.resolve(null),
   ]);
   const { data: paRow, error: paErro } = admins;
   const { data: rawMemberships, error: membErro } = consultaDeMembros;
@@ -280,9 +298,11 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
 
   if (!suporte.ok) throw suporte.erro;
   const support = suporte.valor;
-  const fullName = (user.user_metadata?.full_name as string | undefined) ?? null;
-  const avatarUrl = (user.user_metadata?.avatar_url as string | undefined) ?? null;
-  const locale = (user.user_metadata?.locale as string | undefined) ?? null;
+  // Registro vivo quando o Auth respondeu; senão o que já estava no JWT.
+  const meta = perfilVivo ?? user.user_metadata;
+  const fullName = (meta.full_name as string | undefined) ?? null;
+  const avatarUrl = (meta.avatar_url as string | undefined) ?? null;
+  const locale = (meta.locale as string | undefined) ?? null;
   // A cadeia inteira num lugar só: pessoa → organização ativa → padrão. Quem
   // consome pede `idioma` e não precisa saber que existe uma ordem.
   //
@@ -293,7 +313,7 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
   const idioma = normalizarIdioma(
     locale ?? support?.locale ?? (await localeDaOrgAtiva(memberships)),
   );
-  const timezone = (user.user_metadata?.timezone as string | undefined) ?? null;
+  const timezone = (meta.timezone as string | undefined) ?? null;
 
   return {
     id: user.id,
